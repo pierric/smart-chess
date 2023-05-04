@@ -1,5 +1,9 @@
-# -*- coding: utf-8 -*-
-"""Helper module to encode/decode knight moves."""
+"""
+Helper module to encode/decode knight moves.
+
+copied from gym-chess https://github.com/iamlucaswolf/gym-chess
+
+"""
 
 import chess
 import numpy as np

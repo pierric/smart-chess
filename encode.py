@@ -1,3 +1,7 @@
+"""
+copied from gym-chess https://github.com/iamlucaswolf/gym-chess
+"""
+
 from typing import Tuple
 from unittest.mock import Mock
 
@@ -27,7 +31,7 @@ class BoardHistory:
 
         #: Ring buffer of recent board encodings; stored boards are always
         #: oriented towards the White player.
-        self._buffer = np.zeros((length, 8, 8, 14), dtype=np.int)
+        self._buffer = np.zeros((length, 8, 8, 14), dtype=np.int32)
 
 
     def push(self, board: chess.Board) -> None:
@@ -46,7 +50,7 @@ class BoardHistory:
     def encode(self, board: chess.Board) -> np.array:
         """Converts a board to numpy array representation."""
 
-        array = np.zeros((8, 8, 14), dtype=np.int)
+        array = np.zeros((8, 8, 14), dtype=np.int32)
 
         for square, piece in board.piece_map().items():
             rank, file = chess.square_rank(square), chess.square_file(square)
@@ -214,7 +218,7 @@ def encode_board_history(boards, length):
 
     meta = np.zeros(
         shape=(8 ,8, 7),
-        dtype=np.int
+        dtype=np.int32
     )
 
     meta[:, :, 0] = int(board.turn)

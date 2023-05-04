@@ -1,3 +1,7 @@
+"""
+copied from gym-chess https://github.com/iamlucaswolf/gym-chess
+"""
+
 from typing import Tuple, Any
 import chess
 

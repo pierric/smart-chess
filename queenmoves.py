@@ -1,5 +1,8 @@
-# -*- coding: utf-8 -*-
-"""Helper module to encode/decode queen moves."""
+"""
+Helper module to encode/decode queen moves.
+
+copied from gym-chess https://github.com/iamlucaswolf/gym-chess
+"""
 
 from typing import Optional
 import chess

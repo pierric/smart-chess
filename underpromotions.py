@@ -1,5 +1,8 @@
-# -*- coding: utf-8 -*-
-"""Helper module to encode/decode underpromotions."""
+"""
+Helper module to encode/decode underpromotions.
+
+copied from gym-chess https://github.com/iamlucaswolf/gym-chess
+"""
 
 import chess
 import numpy as np

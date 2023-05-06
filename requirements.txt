@@ -1,0 +1,10 @@
+ffcv==1.0.2
+python-chess==1.999
+tqdm-loggable==0.1.3
+git+https://github.com/huggingface/accelerate@995563fec9801308b3ddbbfaf4128730182eaa81
+onnx==1.13.1
+onnxruntime==1.14.1
+git+https://github.com/huggingface/pytorch-image-models.git@5e64777804154b510ab41f0ace5ae30551bc991b
+torch
+torchvision
+

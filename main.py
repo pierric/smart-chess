@@ -9,17 +9,20 @@ from self_play import self_play
 from encode import encode_board_history, encode_action, encode_prob
 from beton import write_beton
 import torch
+import torch._dynamo
 from accelerate import Accelerator
 
 logger = logging.getLogger(__name__)
 
+#torch._dynamo.config.suppress_errors = True
+#torch._dynamo.config.verbose=True
 
 class Chess(mcts.Game):
 
-    MOVES_CUTOFF = 40
+    MOVES_CUTOFF = 80
 
     def start(self):
-        return mcts.Node(None, 0, 0, 0, None, [])
+        return mcts.Node(None, 0, 0, None, [])
 
     def replay(self, node, keep_history=True):
         steps = []
@@ -116,13 +119,13 @@ class RandomPlayer:
 class NNPlayer:
     def __init__(self, model):
         self.model = model
-        self.model.eval()
 
     def __call__(self, board_enc):
         inp = torch.tensor(board_enc).float().unsqueeze(0).cuda()
-        prob, outcome = self.model(inp)
-        prob = torch.nn.functional.softmax(prob[0],dim=0).detach().cpu().numpy()
-        outcome = outcome[0].detach().cpu().numpy().item()
+        with torch.inference_mode():
+            prob, outcome = self.model(inp)
+            prob = torch.nn.functional.softmax(prob[0],dim=0).detach().cpu().numpy()
+            outcome = outcome[0].detach().cpu().numpy().item()
         return prob, min(1, max(-1, outcome))
 
 
@@ -168,22 +171,31 @@ def dump_training_dataset(filename, game, node, outcome):
 MODEL_VER = "v0"
 
 if __name__ == "__main__":
-    fmt = "%(asctime)s %(message)s"
-    logging.basicConfig(level=logging.INFO, format=fmt, handlers=[logging.StreamHandler()])
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(message)s",
+        datefmt='%Y-%m-%d,%H:%M:%S',
+        handlers=[logging.StreamHandler()]
+    )
 
-    accelerator = Accelerator()
+    accelerator = Accelerator(
+        mixed_precision="fp16",
+        dynamo_backend="inductor",
+    )
     import train
     model = train.ChessModel()
     model = accelerator.prepare(model)
     accelerator.load_state(f"{MODEL_VER}/checkpoint")
+    model.eval()
 
-    player = NNPlayer(model)
+    player1 = NNPlayer(model)
+    player2 = RandomPlayer()
 
-    game = ChessWithTwoPlayer(player, player)
+    game = ChessWithTwoPlayer(player1, player2)
     init = game.start()
 
-    for idx in range(20):
-        end = self_play(game, 5, init, desc=f"Self-play (Epoch {idx})")
+    for idx in range(5):
+        end = self_play(game, 50, init, desc=f"Self-play (Epoch {idx})")
 
         outcome = game.replay(end, keep_history=False).outcome(claim_draw=True)
         if outcome is None:
@@ -195,12 +207,12 @@ if __name__ == "__main__":
         elif outcome.winner == chess.BLACK:
             winner = "black"
 
-        logger.info(f"Outcome: {winner} Root Q: {init.q} {init.n_vis}")
+        logger.info(f"Outcome: {winner} Root Q: {init.q}")
 
         for i, n in enumerate(init.children):
-            logger.info(f"child {i:03}: nsa: {n.n_act}, q: {n.q}, n: {n.n_vis}")
+            logger.info(f"child {i:03}: nsa: {n.n_act}, q: {n.q}")
 
-        mcts.prune(init, max_depth=40)
+        #mcts.prune(init, max_depth=60)
 
     time = datetime.utcnow().strftime("%Y-%m-%d-%X")
     dump_training_dataset(f"{time}.beton", game, end, winner)

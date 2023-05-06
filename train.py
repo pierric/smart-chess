@@ -48,7 +48,7 @@ class ChessModel(torch.nn.Module):
 #    "2023-04-28-16:13:41.beton",
 #]
 MODEL_VER="v0"
-DATASETS = glob.glob(f"{MODEL_VER}/*.beton")
+DATASETS = glob.glob(f"{MODEL_VER}/dataset/*.beton")
 
 def main():
     model = ChessModel()
@@ -82,6 +82,8 @@ def main():
     accelerator = Accelerator(
         log_with="tensorboard",
         project_dir=".",
+        mixed_precision="fp16",
+        dynamo_backend="INDUCTOR",
     )
     accelerator.init_trackers("logs", config={"init_lr": INIT_LR, "num_epochs": NUM_EPOCHS})
 

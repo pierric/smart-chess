@@ -1,3 +1,4 @@
+import logging
 import math
 import random
 from dataclasses import dataclass
@@ -6,8 +7,11 @@ from typing import TypeVar, Generic, Optional, List, Protocol, Tuple
 import numpy as np
 
 
+logger = logging.getLogger(__name__)
+
+
 EPSILON = 1e-4
-CPUCT = 1.0
+CPUCT = 2.0
 
 BoardType = TypeVar("BoardType")
 StepType = TypeVar("StepType")
@@ -16,15 +20,13 @@ StepType = TypeVar("StepType")
 class Node(Generic[StepType]):
     state: Optional[StepType]
     q: float
-    n_vis: int
     n_act: int
     parent: Optional["Node[StepType]"]
     children: List["Node[StepType]"]
 
-    def __init__(self, state, q, n_vis, n_act, parent, children):
+    def __init__(self, state, q, n_act, parent, children):
         self.state = state
         self.q = q
-        self.n_vis = n_vis
         self.n_act = n_act
         self.parent = parent
         self.children = children
@@ -92,11 +94,16 @@ def select(game: Game, node: Node, reverse_q: bool) -> Tuple[Node, int]:
         # the more times the node is visited, the more likely to explore those less-visited children
         #
         prior, _ = game.predict(boards)
-        sqrt_total_num_vis = math.sqrt(node.n_vis)
-        choice = max_index(
-            [uct(sqrt_total_num_vis, p, c.q, c.n_act, reverse_q) for p, c in zip(prior, node.children)]
-        )
-        node = node.children[choice]
+        # adding the Dir(0.03) noise
+        # https://stats.stackexchange.com/questions/322831/purpose-of-dirichlet-noise-in-the-alphazero-paper
+        prior = prior * 0.75 + np.random.dirichlet([0.03]*len(prior)) * 0.25
+        sqrt_total_num_vis = math.sqrt(sum(c.n_act for c in node.children))
+        uct_children = [
+            uct(sqrt_total_num_vis, p, c.q, c.n_act, reverse_q) for p, c in zip(prior, node.children)
+        ]
+        if node.parent is None:
+            logger.info(" ".join(map(lambda v: f"{v:0.1}", uct_children)))
+        node = node.children[max_index(uct_children)]
         node.n_act += 1
         path_length += 1
         board.push(node.state)
@@ -125,7 +132,7 @@ def simulate(game: Game, node: Node, cutoff: int) -> Tuple[Node, int, float]:
 
         assert len(node.children) == 0
         for move in game.legal_moves(board):
-            node.children.append(Node(move, 0, 0, 0, node, []))
+            node.children.append(Node(move, 0, 0, node, []))
 
         steps += 1
         node = np.random.choice(node.children, p=distr)
@@ -139,7 +146,6 @@ def backward(node: Node, reward: float, length: int):
     cnt = 0
     while node is not None and cnt < length:
         cnt += 1
-        node.n_vis += 1
         node.q += reward
         node = node.parent
 

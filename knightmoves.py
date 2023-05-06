@@ -7,6 +7,9 @@ copied from gym-chess https://github.com/iamlucaswolf/gym-chess
 
 import chess
 import numpy as np
+from numba import njit
+from numba.core import types as nbtypes
+from numba.typed import Dict as TypedDict
 
 import utils
 
@@ -31,6 +34,33 @@ _DIRECTIONS = utils.IndexedTuple(
     (+2, -1),
 )
 
+_DIRECTIONS_INDICES = _DIRECTIONS.indices_numba(nbtypes.Tuple((nbtypes.int64, nbtypes.int64)))
+
+
+@njit
+def _encode(
+    from_rank: int,
+    from_file: int,
+    to_rank: int,
+    to_file: int,
+    directions_indices: nbtypes.DictType(nbtypes.int64, nbtypes.int64),
+) -> Optional[int]:
+    delta = (to_rank - from_rank, to_file - from_file)
+    is_knight_move = delta in directions_indices
+
+    if not is_knight_move:
+        return None
+
+    knight_move_type = directions_indices[delta]
+    move_type = _TYPE_OFFSET + knight_move_type
+
+    return from_rank * 8 * 73 + from_file * 73 + move_type
+    #action = np.ravel_multi_index(
+    #    multi_index=((from_rank, from_file, move_type)),
+    #    dims=(8, 8, 73)
+    #)
+
+    #return action
 
 def encode(move: chess.Move) -> Optional[int]:
     """Encodes the given move as a knight move, if possible.
@@ -40,25 +70,8 @@ def encode(move: chess.Move) -> Optional[int]:
         otherwise None.
 
     """
-
     from_rank, from_file, to_rank, to_file = utils.unpack(move)
-
-    delta = (to_rank - from_rank, to_file - from_file)
-    is_knight_move = delta in _DIRECTIONS
-    
-    if not is_knight_move:
-        return None
-
-    knight_move_type = _DIRECTIONS.index(delta)
-    move_type = _TYPE_OFFSET + knight_move_type
-
-    action = np.ravel_multi_index(
-        multi_index=((from_rank, from_file, move_type)),
-        dims=(8, 8, 73)
-    )
-
-    return action
-
+    return _encode(from_rank, from_file, to_rank, to_file, _DIRECTIONS_INDICES)
 
 
 def decode(action: int) -> Optional[chess.Move]:

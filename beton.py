@@ -8,7 +8,7 @@ from ffcv.fields import NDArrayField, IntField
 
 
 FIELDS = {
-    "board": NDArrayField(shape=(8, 8, 119), dtype=np.dtype("int")),
+    "board": NDArrayField(shape=(8, 8, 119), dtype=np.dtype("int32")),
     "move": NDArrayField(shape=(4672,), dtype=np.dtype("float32")),
     "outcome": IntField(),
 }

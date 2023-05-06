@@ -48,6 +48,7 @@ class BoardHistory:
 
 
     def encode(self, board: chess.Board) -> np.array:
+        #TODO optimize this function. It seems to be a hotspot
         """Converts a board to numpy array representation."""
 
         array = np.zeros((8, 8, 14), dtype=np.int32)

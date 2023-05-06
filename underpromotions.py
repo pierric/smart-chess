@@ -6,6 +6,8 @@ copied from gym-chess https://github.com/iamlucaswolf/gym-chess
 
 import chess
 import numpy as np
+from numba import njit
+from numba.core import types as nbtypes
 
 import utils
 
@@ -25,6 +27,8 @@ _DIRECTIONS = utils.IndexedTuple(
     +1,
 )
 
+_DIRECTIONS_INDICES = _DIRECTIONS.indices_numba(nbtypes.int64)
+
 #: Set of possibel piece types for an underpromotion (promoting to a queen
 #: is implicitly encoded by the corresponding queen move).
 _PROMOTIONS = utils.IndexedTuple(
@@ -32,6 +36,50 @@ _PROMOTIONS = utils.IndexedTuple(
     chess.BISHOP,
     chess.ROOK,
 )
+
+_PROMOTIONS_INDICES = _PROMOTIONS.indices_numba(nbtypes.int64)
+
+
+@njit
+def _encode(
+    from_rank: int,
+    from_file: int,
+    to_rank: int,
+    to_file: int,
+    promotion: int,
+    directions_indices: nbtypes.DictType(nbtypes.int64, nbtypes.int64),
+    promotions_indices: nbtypes.DictType(nbtypes.int64, nbtypes.int64),
+) -> Optional[int]:
+
+    is_underpromotion = (
+        promotion in promotions_indices
+        and from_rank == 6
+        and to_rank == 7
+    )
+
+    if not is_underpromotion:
+        return None
+
+    delta_file = to_file - from_file
+
+    direction_idx = directions_indices[delta_file]
+    promotion_idx = promotions_indices[promotion]
+
+    #underpromotion_type = np.ravel_multi_index(
+    #    multi_index=([direction_idx, promotion_idx]),
+    #    dims=(3,3)
+    #)
+    underpromotion_type = direction_idx * 3 + promotion_idx
+
+    move_type = _TYPE_OFFSET + underpromotion_type
+
+    #action = np.ravel_multi_index(
+    #    multi_index=((from_rank, from_file, move_type)),
+    #    dims=(8, 8, 73)
+    #)
+
+    #return action
+    return from_rank * 8 * 73 + from_file * 73 + move_type
 
 
 def encode(move):
@@ -42,37 +90,17 @@ def encode(move):
         underpromotion; otherwise None.
 
     """
-
-
     from_rank, from_file, to_rank, to_file = utils.unpack(move)
-
-    is_underpromotion = (
-        move.promotion in _PROMOTIONS 
-        and from_rank == 6 
-        and to_rank == 7
+    return _encode(
+        from_rank,
+        from_file,
+        to_rank,
+        to_file,
+        move.promotion,
+        _DIRECTIONS_INDICES,
+        _PROMOTIONS_INDICES,
     )
 
-    if not is_underpromotion:
-        return None
-
-    delta_file = to_file - from_file
-
-    direction_idx = _DIRECTIONS.index(delta_file)
-    promotion_idx = _PROMOTIONS.index(move.promotion)
-
-    underpromotion_type = np.ravel_multi_index(
-        multi_index=([direction_idx, promotion_idx]),
-        dims=(3,3)
-    )
-
-    move_type = _TYPE_OFFSET + underpromotion_type
-
-    action = np.ravel_multi_index(
-        multi_index=((from_rank, from_file, move_type)),
-        dims=(8, 8, 73)
-    )
-
-    return action
 
 
 def decode(action):

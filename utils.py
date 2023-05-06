@@ -2,8 +2,11 @@
 copied from gym-chess https://github.com/iamlucaswolf/gym-chess
 """
 
-from typing import Tuple, Any
+from typing import Tuple, Any, Dict
 import chess
+from numba.core import types as nbtypes
+from numba.typed import Dict as TypedDict
+
 
 def pack(
     from_rank: int,
@@ -61,3 +64,14 @@ class IndexedTuple:
 
     def __contains__(self, item: Any) -> bool:
         return item in self._items
+
+    def indices_dict(self) -> Dict[Any, int]:
+        return self._indices
+
+    def indices_numba(self, key_type):
+        indices = TypedDict.empty(key_type=key_type, value_type=nbtypes.int64)
+
+        for key, val in self._indices.items():
+            indices[key] = val
+
+        return indices

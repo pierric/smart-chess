@@ -34,8 +34,6 @@ class Node(Generic[StepType]):
 
 class Game(Protocol, Generic[StepType, BoardType]):
 
-    MOVES_CUTOFF: int
-
     def replay(self, node: Node[StepType], keep_history: bool = True) -> BoardType:
         ...
 

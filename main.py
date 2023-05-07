@@ -17,9 +17,11 @@ logger = logging.getLogger(__name__)
 #torch._dynamo.config.suppress_errors = True
 #torch._dynamo.config.verbose=True
 
+N_ROLLOUT = 50
+MOVES_CUTOFF = 80
+
 class Chess(mcts.Game):
 
-    MOVES_CUTOFF = 80
 
     def start(self):
         return mcts.Node(None, 0, 0, None, [])
@@ -195,7 +197,7 @@ if __name__ == "__main__":
     init = game.start()
 
     for idx in range(5):
-        end = self_play(game, 50, init, desc=f"Self-play (Epoch {idx})")
+        end = self_play(game, N_ROLLOUT, MOVES_CUTOFF, init, desc=f"Self-play (Epoch {idx})")
 
         outcome = game.replay(end, keep_history=False).outcome(claim_draw=True)
         if outcome is None:

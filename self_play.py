@@ -7,7 +7,7 @@ from mcts import mcts, Node, Game
 logger = logging.getLogger(__name__)
 
 
-def self_play(game: Game, n_rollout: int, root: Node, desc="Self-play"):
+def self_play(game: Game, n_rollout: int, cutoff: int, root: Node, desc="Self-play"):
     node = root
     reverse_q = False
 
@@ -15,10 +15,10 @@ def self_play(game: Game, n_rollout: int, root: Node, desc="Self-play"):
         while True:
             current_steps = pbar.n + 1
 
-            if current_steps >= game.MOVES_CUTOFF:
+            if current_steps >= cutoff:
                 break
 
-            next_idx = mcts(game, n_rollout, node, reverse_q, game.MOVES_CUTOFF)
+            next_idx = mcts(game, n_rollout, node, reverse_q, cutoff)
             if next_idx is None:
                 break
 
@@ -31,7 +31,7 @@ def self_play(game: Game, n_rollout: int, root: Node, desc="Self-play"):
             #for i in range(0, len(node.children)):
             #    if i == next_idx:
             #        continue
-            #    prune(node.children[i], current_steps + 1, game.MOVES_CUTOFF - current_steps - 1)
+            #    prune(node.children[i], current_steps + 1, cutoff - current_steps - 1)
 
             node = node.children[next_idx]
             node.n_act += 1

@@ -36,19 +36,10 @@ class ChessModel(torch.nn.Module):
         award = self.fc_award(feature)
         return (distr, award)
 
-#DATASETS = [
-#    "2023-04-28-10:11:47.beton",
-#    "2023-04-28-11:41:26.beton",
-#    "2023-04-28-11:55:13.beton",
-#    "2023-04-28-12:42:44.beton",
-#    "2023-04-28-13:44:23.beton",
-#    "2023-04-28-14:09:46.beton",
-#    "2023-04-28-14:14:27.beton",
-#    "2023-04-28-16:11:44.beton",
-#    "2023-04-28-16:13:41.beton",
-#]
+
 MODEL_VER="v0"
 DATASETS = glob.glob(f"{MODEL_VER}/dataset/*.beton")
+
 
 def main():
     model = ChessModel()

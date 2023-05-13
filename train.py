@@ -5,40 +5,48 @@ from ffcv.fields.decoders import NDArrayDecoder, IntDecoder
 import timm
 import torch
 from torch.optim.lr_scheduler import OneCycleLR
-from torch.nn.functional import cross_entropy, mse_loss
+from torch.nn.functional import mse_loss, log_softmax, tanh
 from accelerate import Accelerator
 from accelerate.utils import LoggerType
 from tqdm import tqdm
 
 
 INIT_LR = 0.001
-NUM_EPOCHS = 100
+NUM_EPOCHS = 40
+
+MODEL_VER="v1"
+DATASETS = glob.glob(f"{MODEL_VER}/dataset/*.beton")
 
 
 class ChessModel(torch.nn.Module):
     def __init__(self):
         super().__init__()
+
         self.backbone = timm.create_model('resnet50', pretrained=False, num_classes=0, in_chans=8)
-        self.fc_move_distr = timm.layers.ClassifierHead(
-            in_features=self.backbone.num_features,
-            num_classes=4672,
+
+        m = torch.nn.ReLU()
+
+        self.global_pool, self.fc1 = timm.layers.create_classifier(
+            self.backbone.num_features,
+            4672,
             pool_type="avg",
+            use_conv=False,
         )
-        self.fc_award = timm.layers.ClassifierHead(
-            in_features=self.backbone.num_features,
-            num_classes=1,
-            pool_type="avg",
-        )
+
+        self.fc2 = torch.nn.Linear(self.fc1.in_features, 1, bias=True)
 
     def forward(self, input):
         feature = self.backbone.forward_features(input)
-        distr = self.fc_move_distr(feature)
-        award = self.fc_award(feature)
-        return (distr, award)
 
+        v = self.global_pool(feature)
+        # TODO dropout?
+        v1 = self.fc1(v)
+        v1 = log_softmax(v1, dim=1)
 
-MODEL_VER="v0"
-DATASETS = glob.glob(f"{MODEL_VER}/dataset/*.beton")
+        v2 = self.fc2(v)
+        v2 = tanh(v2)
+
+        return v1, v2
 
 
 def main():
@@ -95,8 +103,10 @@ def main():
                 for batch in dl:
                     batch = [v.to(accelerator.device) for v in batch]
                     output_distr, output_award = model(batch[0])
-                    loss1 = cross_entropy(output_distr, batch[1])
+
+                    loss1 = - torch.sum(output_distr * batch[1]) / output_distr.size()[0]
                     loss2 = mse_loss(output_award, batch[2])
+
                     loss = loss1 + loss2
                     accelerator.backward(loss)
                     optimizer.step()

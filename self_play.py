@@ -18,9 +18,12 @@ def self_play(game: Game, n_rollout: int, cutoff: int, root: Node, desc="Self-pl
             if current_steps >= cutoff:
                 break
 
-            next_idx = mcts(game, n_rollout, node, reverse_q, cutoff)
-            if next_idx is None:
+            mcts(game, n_rollout, node, reverse_q, cutoff)
+
+            if not node.children:
                 break
+
+            next_idx = max_index([mcts.expected_reward(c, reverse_q) for c in node.children])
 
             # prune the other branches to save memory
             # we have recorded the statistics, and don't revisit the node
@@ -38,11 +41,7 @@ def self_play(game: Game, n_rollout: int, cutoff: int, root: Node, desc="Self-pl
             reverse_q = not reverse_q
 
             pbar.update()
-            if pbar.n % 20 == 0:
-                logger.info(f"\n{game.replay(node)}")
-
-            #print(f"chosen {next_idx}")
-            #for i, n in enumerate(root.children):
-            #    print(f"root child {i:03}: nsa: {n.n_act}, q: {n.q}, n: {n.n_vis}")
+            #if pbar.n % 20 == 0:
+            #    logger.info(f"\n{game.replay(node)}")
 
     return node

@@ -99,8 +99,8 @@ def select(game: Game, node: Node, reverse_q: bool) -> Tuple[Node, int]:
         uct_children = [
             uct(sqrt_total_num_vis, p, c.q, c.n_act, reverse_q) for p, c in zip(prior, node.children)
         ]
-        if node.parent is None:
-            logger.info(" ".join(map(lambda v: f"{v:0.1}", uct_children)))
+        #if node.parent is None:
+        #    logger.info(" ".join(map(lambda v: f"{v:0.1}", uct_children)))
         node = node.children[max_index(uct_children)]
         node.n_act += 1
         path_length += 1
@@ -148,16 +148,20 @@ def backward(node: Node, reward: float, length: int):
         node = node.parent
 
 
-def mcts(game: Game, n_rollout: int, root: Node, reverse_q: bool, cutoff: int) -> Optional[int]:
+def mcts(game: Game, n_rollout: int, root: Node, reverse_q: bool, cutoff: int) -> List[Tuple[Node, float]]:
+    ends = []
+
     for _ in range(n_rollout):
         leaf, sel_length = select(game, root, reverse_q)
         last, sim_length, reward = simulate(game, leaf, cutoff - sel_length)
         backward(last, reward, sel_length + sim_length)
+        ends.append((last, reward))
 
-    if not root.children:
-        return None
+    return ends
 
-    return max_index([expected_reward(c, reverse_q) for c in root.children])
+    # NOTE use the expected reward seems to be very bad, because it will basically select the same action
+    # for all the run of self-play with the same search tree.
+    # return max_index([expected_reward(c, reverse_q) for c in root.children])
 
 
 def prune(root: Node, max_depth: int = 60):

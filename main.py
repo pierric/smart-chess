@@ -5,20 +5,24 @@ from datetime import datetime
 import chess
 import numpy as np
 import mcts
-from self_play import self_play
+#from self_play import self_play
 from encode import encode_board_history, encode_action, encode_prob
 from beton import write_beton
 import torch
 import torch._dynamo
 from accelerate import Accelerator
+import tqdm
 
 logger = logging.getLogger(__name__)
 
 #torch._dynamo.config.suppress_errors = True
 #torch._dynamo.config.verbose=True
 
-N_ROLLOUT = 50
+N_ROLLOUT = 1
 MOVES_CUTOFF = 80
+MODEL_VER = "v1"
+N_TOTAL = 2000
+
 
 class Chess(mcts.Game):
 
@@ -64,7 +68,8 @@ class Chess(mcts.Game):
 
     def judge(self, board):
         if board.is_checkmate():
-            return 1 if board.turn == chess.WHITE else -1
+            # IMPORTANT turn is black means white wins
+            return 1 if board.turn == chess.BLACK else -1
 
         if board.is_insufficient_material() or board.is_stalemate():
             return 0
@@ -126,9 +131,11 @@ class NNPlayer:
         inp = torch.tensor(board_enc).float().unsqueeze(0).cuda()
         with torch.inference_mode():
             prob, outcome = self.model(inp)
-            prob = torch.nn.functional.softmax(prob[0],dim=0).detach().cpu().numpy()
-            outcome = outcome[0].detach().cpu().numpy().item()
-        return prob, min(1, max(-1, outcome))
+            prob = prob[0]
+            outcome = outcome[0]
+            prob = prob.exp().detach().cpu().numpy()
+            outcome = (outcome + outcome.sign()* 0.5).trunc().detach().cpu().numpy().item()
+        return prob, outcome
 
 
 def dump_training_dataset(filename, game, node, outcome):
@@ -170,8 +177,6 @@ def dump_training_dataset(filename, game, node, outcome):
     write_beton(filename, dataset)
 
 
-MODEL_VER = "v0"
-
 if __name__ == "__main__":
     logging.basicConfig(
         level=logging.INFO,
@@ -193,28 +198,41 @@ if __name__ == "__main__":
     player1 = NNPlayer(model)
     player2 = RandomPlayer()
 
-    game = ChessWithTwoPlayer(player1, player2)
+    game = ChessWithTwoPlayer(player1, player1)
     init = game.start()
 
-    for idx in range(5):
-        end = self_play(game, N_ROLLOUT, MOVES_CUTOFF, init, desc=f"Self-play (Epoch {idx})")
+    postfix = {"w": 0, "b": 0, "d": 0, "u": 0}
+    pbar = tqdm.tqdm(total=N_TOTAL)
 
-        outcome = game.replay(end, keep_history=False).outcome(claim_draw=True)
+    for idx in range(N_TOTAL):
+        #end = self_play(game, N_ROLLOUT, MOVES_CUTOFF, init, desc=f"Self-play (Epoch {idx})")
+        [(end_node, _)] = mcts.mcts(game, 1, init, False, MOVES_CUTOFF)
+
+        outcome = game.replay(end_node, keep_history=False).outcome(claim_draw=True)
         if outcome is None:
             winner = "unknown"
+            postfix["u"] += 1
         elif outcome.winner is None:
             winner = "draw"
+            postfix["d"] += 1
         elif outcome.winner == chess.WHITE:
             winner = "white"
+            postfix["w"] += 1
         elif outcome.winner == chess.BLACK:
             winner = "black"
+            postfix["b"] += 1
 
-        logger.info(f"Outcome: {winner} Root Q: {init.q}")
+        if idx % 20 == 0:
+            logger.info(f"Outcome: {winner} Root Q: {init.q}")
 
-        for i, n in enumerate(init.children):
-            logger.info(f"child {i:03}: nsa: {n.n_act}, q: {n.q}")
+            root_children_status = ""
+            for i, n in enumerate(init.children):
+                root_children_status += f"child {i:03}: nsa: {n.n_act}, q: {n.q}\n"
+            logger.info(root_children_status)
 
-        #mcts.prune(init, max_depth=60)
+        pbar.set_postfix(postfix)
+        pbar.update()
 
-    time = datetime.utcnow().strftime("%Y-%m-%d-%X")
-    dump_training_dataset(f"{time}.beton", game, end, winner)
+        if winner in ["white", "black", "draw"]:
+            time = datetime.utcnow().strftime("%Y-%m-%d-%X")
+            dump_training_dataset(f"{time}.beton", game, end_node, winner)

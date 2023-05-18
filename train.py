@@ -12,9 +12,9 @@ from tqdm import tqdm
 
 
 INIT_LR = 0.001
-NUM_EPOCHS = 40
+NUM_EPOCHS = 30
 
-MODEL_VER="v1"
+MODEL_VER="v0"
 DATASETS = glob.glob(f"{MODEL_VER}/dataset/*.beton")
 
 
@@ -22,7 +22,7 @@ class ChessModel(torch.nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.backbone = timm.create_model('resnet50', pretrained=False, num_classes=0, in_chans=8)
+        self.backbone = timm.create_model('resnet18', pretrained=False, num_classes=0, in_chans=8)
 
         m = torch.nn.ReLU()
 

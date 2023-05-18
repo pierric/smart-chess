@@ -2,7 +2,7 @@ import logging
 #from tqdm import tqdm
 from tqdm_loggable.auto import tqdm
 
-from mcts import mcts, Node, Game
+from mcts import mcts, Node, Game, max_index, expected_reward
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +11,7 @@ def self_play(game: Game, n_rollout: int, cutoff: int, root: Node, desc="Self-pl
     node = root
     reverse_q = False
 
-    with tqdm(desc=desc) as pbar:
+    with tqdm(desc=desc, leave=False) as pbar:
         while True:
             current_steps = pbar.n + 1
 
@@ -23,7 +23,7 @@ def self_play(game: Game, n_rollout: int, cutoff: int, root: Node, desc="Self-pl
             if not node.children:
                 break
 
-            next_idx = max_index([mcts.expected_reward(c, reverse_q) for c in node.children])
+            next_idx = max_index([expected_reward(c, reverse_q) for c in node.children])
 
             # prune the other branches to save memory
             # we have recorded the statistics, and don't revisit the node

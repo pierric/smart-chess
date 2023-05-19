@@ -33,21 +33,15 @@ class BoardHistory:
         #: oriented towards the White player.
         self._buffer = np.zeros((length, 8, 8, 14), dtype=np.int32)
 
-
     def push(self, board: chess.Board) -> None:
-        """Adds a new board to the history."""
+        self.push_encoded_board(self.encode(board))
 
-        board_array = self.encode(board)
-
-        # Overwrite oldest element in the buffer.
-        self._buffer[-1] = board_array
-
-        # Roll inserted element to the top (= most recent position); all older
-        # elements are pushed towards the end of the buffer
+    def push_encoded_board(self, board: np.ndarray) -> None:
+        self._buffer[-1] = board
         self._buffer = np.roll(self._buffer, 1, axis=0)
 
-
-    def encode(self, board: chess.Board) -> np.array:
+    @staticmethod
+    def encode(board: chess.Board) -> np.array:
         #TODO optimize this function. It seems to be a hotspot
         """Converts a board to numpy array representation."""
 
@@ -74,6 +68,27 @@ class BoardHistory:
         array[:, :, 13] = board.is_repetition(3)
 
         return array
+
+    @staticmethod
+    def encode_board_meta(board):
+        meta = np.zeros(
+            shape=(8 ,8, 7),
+            dtype=np.int32
+        )
+
+        meta[:, :, 0] = int(board.turn)
+
+        meta[:, :, 1] = board.fullmove_number
+
+        meta[:, :, 2] = board.has_kingside_castling_rights(board.turn)
+        meta[:, :, 3] = board.has_queenside_castling_rights(board.turn)
+
+        meta[:, :, 4] = board.has_kingside_castling_rights(not board.turn)
+        meta[:, :, 5] = board.has_queenside_castling_rights(not board.turn)
+
+        meta[:, :, 6] = board.halfmove_clock
+
+        return meta
 
     def view(self, orientation: bool = chess.WHITE) -> np.array:
         """Returns an array view of the board history.
@@ -114,7 +129,6 @@ class BoardHistory:
     def reset(self) -> None:
         """Clears the history."""
         self._buffer[:] = 0
-
 
 
 class MoveEncoding:
@@ -208,32 +222,14 @@ class MoveEncoding:
         return move, None
 
 
-def encode_board_history(boards, length):
+def encode_boards(encoded_boards, length, last_board):
     benc = BoardHistory(length=length)
 
-    for board in boards:
-        benc.push(board)
+    for board in encoded_boards:
+        benc.push_encoded_board(board)
 
-    board = boards[-1]
-    array = benc.view(orientation=board.turn)
-
-    meta = np.zeros(
-        shape=(8 ,8, 7),
-        dtype=np.int32
-    )
-
-    meta[:, :, 0] = int(board.turn)
-
-    meta[:, :, 1] = board.fullmove_number
-
-    meta[:, :, 2] = board.has_kingside_castling_rights(board.turn)
-    meta[:, :, 3] = board.has_queenside_castling_rights(board.turn)
-
-    meta[:, :, 4] = board.has_kingside_castling_rights(not board.turn)
-    meta[:, :, 5] = board.has_queenside_castling_rights(not board.turn)
-
-    meta[:, :, 6] = board.halfmove_clock
-
+    array = benc.view(orientation=last_board.turn)
+    meta = BoardHistory.encode_board_meta(last_board)
     return np.concatenate([array, meta], axis=-1)
 
 

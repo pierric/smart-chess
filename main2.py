@@ -1,12 +1,14 @@
 import logging
 import random
 from datetime import datetime
+from dataclasses import dataclass
+from typing import Optional
 
 import chess
 import numpy as np
 import mcts
 from self_play import self_play
-from encode import encode_board_history, encode_action, encode_prob
+from encode import encode_boards, encode_action, encode_prob, BoardHistory
 from beton import write_beton
 import torch
 import torch._dynamo
@@ -19,18 +21,23 @@ logger = logging.getLogger(__name__)
 #torch._dynamo.config.suppress_errors = True
 #torch._dynamo.config.verbose=True
 
-class Chess(mcts.Game):
+@dataclass
+class Step:
+    move: Optional[chess.Move]
+    encoded_board: Optional[np.ndarray]
 
+
+class Chess(mcts.Game[Step, chess.Board]):
 
     def start(self):
-        return mcts.Node(None, 0, 0, None, [])
+        return mcts.Node(Step(None, None), 0, 0, None, [])
 
     def replay(self, node, keep_history=True):
         steps = []
 
         while node is not None:
-            if node.state is not None:
-                steps.append(node.state)
+            if node.state.move is not None:
+                steps.append(node.state.move)
             node = node.parent
 
         steps.reverse()
@@ -43,22 +50,7 @@ class Chess(mcts.Game):
 
         return board
 
-    def get_history(self, board, n_look_back):
-        board = board.copy(stack=True)
-        history = []
-        for i in range(n_look_back):
-            history.append(board.copy(stack=False))
-            try:
-                board.pop()
-            except IndexError:
-                break
-        history.reverse()
-        return history
-
-    def legal_moves(self, board):
-        return list(board.legal_moves)
-
-    def predict(self, board):
+    def predict(self, node):
         raise NotImplementedError
 
     def judge(self, board):
@@ -71,19 +63,6 @@ class Chess(mcts.Game):
 
         raise ValueError("game not finished.")
 
-    def give_up_policy(self, board):
-        return 0 if board.can_claim_draw() else None
-
-
-class ChessWithRandomPlayer(Chess):
-    def predict(self, board):
-        n_moves = len(list(board.legal_moves))
-
-        if n_moves == 0:
-            return [], self.judge(board)
-
-        return [1/n_moves] * n_moves, 0
-
 
 class ChessWithTwoPlayer(Chess):
     def __init__(self, player1, player2):
@@ -91,14 +70,41 @@ class ChessWithTwoPlayer(Chess):
         self.player1 = player1
         self.player2 = player2
 
-    def predict(self, boards):
-        board = boards[-1]
+    def predict(self, node):
+        path = []
+        cnt = 0
+
+        tmp_node = node
+        while tmp_node is not None and cnt < 8:
+            path.append(tmp_node )
+            tmp_node = tmp_node.parent
+            cnt += 1
+
+        path.reverse()
+
+        board = self.replay(path[0], keep_history=False)
+
+        # encode and cache the boards along the path
+        for i, n in enumerate(path):
+            if i > 0:
+                board.push(n.state.move)
+
+            if n.state.encoded_board is None:
+                n.state.encoded_board = BoardHistory.encode(board)
+
+        # now the board should be the last one
+        #assert board.board_fen() == self.replay(node, keep_history=False).board_fen()
+
         moves = list(board.legal_moves)
 
         if len(moves) == 0:
-            return [], self.judge(board)
+            return False, [], [], self.judge(board)
 
-        board_enc = encode_board_history(boards, 8)
+        # give up playing
+        if board.can_claim_draw():
+            return True, [], [], 0
+
+        board_enc = encode_boards([n.state.encoded_board for n in path], 8, board)
 
         if board.turn == chess.WHITE:
             distr, outcome = self.player1(board_enc)
@@ -108,7 +114,7 @@ class ChessWithTwoPlayer(Chess):
 
         act_enc = [encode_action(board.turn, m) for m in moves]
         act_prob = distr[act_enc]
-        return act_prob / act_prob.sum(), outcome
+        return False, [Step(m, None) for m in moves], act_prob / act_prob.sum(), outcome
 
 
 class RandomPlayer:
@@ -153,16 +159,13 @@ def dump_training_dataset(filename, game, node, outcome):
     }
     outcome_int = outcome_table[outcome]
 
-    for i, _ in enumerate(path[:-1]):
+    for i, node in enumerate(path[:-1]):
 
-        #start = max(0, i - 8)
-        #boards = [game.replay(n, keep_history=False) for n in path[start:i+1]]
-        board = game.replay(path[i], keep_history=True)
-        boards = game.get_history(board, 8)
-        board_enc = encode_board_history(boards, 8)
-
-        node = path[i]
         board = game.replay(node, keep_history=False)
+        start = max(0, i - 8)
+        boards = [n.state.encoded_board for n in path[start:i+1]]
+        board_enc = encode_boards(boards, 8, board)
+
         act_enc = np.array([encode_action(board.turn, m) for m in board.legal_moves], dtype=int)
         act_prob = encode_prob([c.n_act for c in node.children])
         target = np.zeros(8 * 8 * 73, dtype=np.float32)

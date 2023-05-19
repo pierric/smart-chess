@@ -41,19 +41,10 @@ class Game(Protocol, Generic[StepType, BoardType]):
     def start(self) -> Node[StepType]:
         ...
 
-    def legal_moves(self, board: BoardType) -> List[StepType]:
-        ...
-
-    def predict(self, board: BoardType) -> Tuple[List[float], float]:
+    def predict(self, board: BoardType) -> Tuple[bool, List[StepType], List[float], float]:
         """
         Given the board, predict the distribution of the next move and outcome
         """
-
-    def judge(self, board: BoardType) -> float:
-        ...
-
-    def give_up_policy(self, board: BoardType) -> Optional[float]:
-        ...
 
 
 def uct(sqrt_total_num_vis, prior, move_q, move_n_act, reverse_q):
@@ -84,15 +75,12 @@ def select(game: Game, node: Node, reverse_q: bool) -> Tuple[Node, int]:
     """
     path_length = 1
 
-    board = game.replay(node)
-    boards = game.get_history(board, 8)
-
     while node.children:
         #sqrt_total_num_act = math.sqrt(sum(c.n_act for c in node.children))
         #
         # the more times the node is visited, the more likely to explore those less-visited children
         #
-        prior, _ = game.predict(boards)
+        _, _, prior, _ = game.predict(node)
         # adding the Dir(0.03) noise
         # https://stats.stackexchange.com/questions/322831/purpose-of-dirichlet-noise-in-the-alphazero-paper
         prior = prior * 0.75 + np.random.dirichlet([0.03]*len(prior)) * 0.25
@@ -105,9 +93,6 @@ def select(game: Game, node: Node, reverse_q: bool) -> Tuple[Node, int]:
         node = node.children[max_index(uct_children)]
         node.n_act += 1
         path_length += 1
-        board.push(node.state)
-        boards.append(board)
-        boards = boards[-8:]
 
     return (node, path_length)
 
@@ -115,30 +100,20 @@ def select(game: Game, node: Node, reverse_q: bool) -> Tuple[Node, int]:
 def simulate(game: Game, node: Node, cutoff: int) -> Tuple[Node, int, float]:
     steps = 0
 
-    board = game.replay(node)
-    boards = game.get_history(board, 8)
-
     while True:
 
-        distr, outcome = game.predict(boards)
+        give_up, moves, distr, outcome = game.predict(node)
 
-        if steps >= cutoff or len(distr) == 0:
+        if steps >= cutoff or len(distr) == 0 or give_up:
             return node, steps, outcome
 
-        give_up_reward = game.give_up_policy(board)
-        if give_up_reward is not None:
-            return node, steps, give_up_reward
-
         assert len(node.children) == 0
-        for move in game.legal_moves(board):
-            node.children.append(Node(move, 0, 0, node, []))
+        for step in moves:
+            node.children.append(Node(step, 0, 0, node, []))
 
         steps += 1
         node = np.random.choice(node.children, p=distr)
         node.n_act += 1
-        board.push(node.state)
-        boards.append(board)
-        boards = boards[-8:]
 
 
 def backward(node: Node, reward: float, length: int):

@@ -20,6 +20,12 @@ def self_play(game: Game, n_rollout: int, cutoff: int, root: Node, desc="Self-pl
 
             mcts(game, n_rollout, node, reverse_q, cutoff)
 
+            if node.parent is None:
+                root_children_status = ""
+                for i, n in enumerate(node.children):
+                    root_children_status += f"child {i:03}: nsa: {n.n_act}, q: {n.q}\n"
+                logger.info(root_children_status)
+
             if not node.children:
                 break
 
@@ -31,13 +37,14 @@ def self_play(game: Game, n_rollout: int, cutoff: int, root: Node, desc="Self-pl
             # but deleting the branch could make hurt the next round. A
             # better strategy can be delete only nodes deeper than 100 in
             # those branches.
-            #for i in range(0, len(node.children)):
-            #    if i == next_idx:
-            #        continue
-            #    prune(node.children[i], current_steps + 1, cutoff - current_steps - 1)
+            for i in range(0, len(node.children)):
+                if i == next_idx:
+                    continue
+                #prune(node.children[i], current_steps + 1, cutoff - current_steps - 1)
+                node.children[i].children = []
 
             node = node.children[next_idx]
-            node.n_act += 1
+            #node.n_act += 1
             reverse_q = not reverse_q
 
             pbar.update()

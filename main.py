@@ -133,7 +133,7 @@ class NNPlayer:
             prob, outcome = self.model(inp)
             prob = prob[0]
             outcome = outcome[0]
-            prob = prob.exp().detach().cpu().numpy()
+            prob = prob.detach().cpu().numpy()
             outcome = (outcome + outcome.sign()* 0.5).trunc().detach().cpu().numpy().item()
         return prob, outcome
 

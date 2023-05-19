@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import TypeVar, Generic, Optional, List, Protocol, Tuple
 
 import numpy as np
+from tqdm import trange
 
 
 logger = logging.getLogger(__name__)
@@ -151,7 +152,7 @@ def backward(node: Node, reward: float, length: int):
 def mcts(game: Game, n_rollout: int, root: Node, reverse_q: bool, cutoff: int) -> List[Tuple[Node, float]]:
     ends = []
 
-    for _ in range(n_rollout):
+    for _ in trange(n_rollout, desc="Roll-out", leave=False):
         leaf, sel_length = select(game, root, reverse_q)
         last, sim_length, reward = simulate(game, leaf, cutoff - sel_length)
         backward(last, reward, sel_length + sim_length)

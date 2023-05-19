@@ -124,11 +124,12 @@ class NNPlayer:
 
     def __call__(self, board_enc):
         inp = torch.tensor(board_enc).float().unsqueeze(0).cuda()
+        inp = inp.permute(0, 3, 1, 2)
         with torch.inference_mode():
             prob, outcome = self.model(inp)
             prob = prob[0]
             outcome = outcome[0]
-            prob = prob.exp().detach().cpu().numpy()
+            prob = prob.detach().cpu().numpy()
             outcome = (outcome + outcome.sign()* 0.5).trunc().detach().cpu().numpy().item()
         return prob, outcome
 

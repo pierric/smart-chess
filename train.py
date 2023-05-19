@@ -13,13 +13,6 @@ from accelerate.utils import LoggerType
 from tqdm import tqdm
 
 
-INIT_LR = 0.001
-NUM_EPOCHS = 30
-
-MODEL_VER="v0"
-DATASETS = glob.glob(f"{MODEL_VER}/dataset/*.beton")
-
-
 class ResBlock(nn.Module):
     def __init__(self, inplanes=256, planes=256, stride=1, downsample=None):
         super().__init__()
@@ -88,12 +81,18 @@ class ChessModel(torch.nn.Module):
         return v1, v2
 
 
-def main():
+@click.command()
+@click.option("--init-lr", default=0.001)
+@click.option("--num-epochs", default=30)
+@click.option("--model-ver", default=0)
+def main(init_lr, num_epochs, model_ver):
     model = ChessModel()
 
     dataloaders = []
 
-    for dataset in DATASETS:
+    datasets = glob.glob(f"v{model_ver}/dataset/*.beton")
+
+    for dataset in datasets:
         dl = ffcv.Loader(
             dataset,
             batch_size=32,
@@ -108,12 +107,12 @@ def main():
 
     num_total = sum(len(dl) for dl in dataloaders)
 
-    optimizer = torch.optim.Adam(params=model.parameters(), lr=INIT_LR, weight_decay=1e-5)
+    optimizer = torch.optim.Adam(params=model.parameters(), lr=init_lr, weight_decay=1e-5)
 
     lr_scheduler = OneCycleLR(
         optimizer=optimizer,
-        max_lr=INIT_LR,
-        epochs=NUM_EPOCHS,
+        max_lr=init_lr,
+        epochs=num_epochs,
         steps_per_epoch=num_total
     )
 
@@ -123,7 +122,7 @@ def main():
         mixed_precision="fp16",
         dynamo_backend="INDUCTOR",
     )
-    accelerator.init_trackers("logs", config={"init_lr": INIT_LR, "num_epochs": NUM_EPOCHS})
+    accelerator.init_trackers("logs", config={"init_lr": init_lr, "num_epochs": num_epochs})
 
     model, optimizer, lr_scheduler = accelerator.prepare(
         model, optimizer, lr_scheduler
@@ -131,8 +130,11 @@ def main():
 
     dataloaders = accelerator.prepare(*dataloaders)
 
+    if model_ver >= 1:
+        accelerator.load_state(f"v{model_ver-1}/checkpoint")
+
     step = 0
-    for epoch in range(NUM_EPOCHS):
+    for epoch in range(num_epochs):
 
         model.train()
         accelerator.print(f"epoch {epoch}")
@@ -161,7 +163,7 @@ def main():
                     pbar.update()
 
     accelerator.end_training()
-    accelerator.save_state(output_dir=f"{MODEL_VER}/checkpoint")
+    accelerator.save_state(output_dir=f"v{model_ver}/checkpoint")
 
 
 if __name__ == "__main__":

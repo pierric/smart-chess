@@ -177,11 +177,12 @@ def dump_training_dataset(filename, game, node, outcome):
 
 
 @click.command()
-@click.option("--n_rollout", default=400)
-@click.option("--moves_cutoff", default=60)
-@click.option("--n_epochs", default=20)
-@click.option("--model_ver")
-def main(n_epochs, n_rollout, moves_cutoff, model_ver):
+@click.option("--n-rollout", default=400)
+@click.option("--moves-cutoff", default=60)
+@click.option("--n-epochs", default=20)
+@click.option("--model-ver")
+@click.option("--model-prefix", default="v")
+def main(n_epochs, n_rollout, moves_cutoff, model_ver, model_prefix):
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(message)s",
@@ -198,7 +199,7 @@ def main(n_epochs, n_rollout, moves_cutoff, model_ver):
     model = train.ChessModel()
     model = accelerator.prepare(model)
     if model_ver is not None:
-        accelerator.load_state(f"{model_ver}/checkpoint")
+        accelerator.load_state(f"{model_prefix}{model_ver}/checkpoint")
     model.eval()
 
     player1 = NNPlayer(model)

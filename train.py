@@ -38,7 +38,7 @@ class ResBlock(nn.Module):
 
 
 class ChessModel(torch.nn.Module):
-    N_RES_BLOCKS = 1
+    N_RES_BLOCKS = 19
 
     def __init__(self):
         super().__init__()
@@ -86,20 +86,22 @@ class ChessModel(torch.nn.Module):
 @click.option("--init-lr", default=0.001)
 @click.option("--num-epochs", default=30)
 @click.option("--model-ver", default=0)
-def main(init_lr, num_epochs, model_ver):
+@click.option("--model-prefix", default="v")
+@click.option("--load-prev-ckpt", default=True)
+def main(init_lr, num_epochs, model_ver, model_prefix, load_prev_ckpt):
     model = ChessModel()
 
     dataloaders = []
 
-    datasets = glob.glob(f"v{model_ver}/dataset/*.beton")
+    datasets = glob.glob(f"{model_prefix}{model_ver}/dataset/*.beton")
 
     for dataset in datasets:
         dl = ffcv.Loader(
             dataset,
-            batch_size=32,
+            batch_size=4,
             order=ffcv.loader.OrderOption.RANDOM,
             pipelines={
-                "board": [NDArrayDecoder(), ToTorchImage(), Convert(torch.float32)],
+                "board": [NDArrayDecoder(), ToTensor(), ToTorchImage(), Convert(torch.float32)],
                 "move": [NDArrayDecoder(), ToTensor()],
                 "outcome": [IntDecoder(), ToTensor(), Convert(torch.float32)],
             }
@@ -121,18 +123,21 @@ def main(init_lr, num_epochs, model_ver):
         log_with="tensorboard",
         project_dir=".",
         mixed_precision="fp16",
-        dynamo_backend="INDUCTOR",
+        #dynamo_backend="INDUCTOR",
     )
     accelerator.init_trackers("logs", config={"init_lr": init_lr, "num_epochs": num_epochs})
 
-    model, optimizer, lr_scheduler = accelerator.prepare(
-        model, optimizer, lr_scheduler
+    model = accelerator.prepare(model)
+
+    if model_ver >= 1 and load_prev_ckpt:
+        print("Loading previous model.")
+        accelerator.load_state(f"{model_prefix}{model_ver-1}/checkpoint")
+
+    optimizer, lr_scheduler = accelerator.prepare(
+        optimizer, lr_scheduler
     )
 
     dataloaders = accelerator.prepare(*dataloaders)
-
-    if model_ver >= 1:
-        accelerator.load_state(f"v{model_ver-1}/checkpoint")
 
     step = 0
     for epoch in range(num_epochs):
@@ -164,7 +169,7 @@ def main(init_lr, num_epochs, model_ver):
                     pbar.update()
 
     accelerator.end_training()
-    accelerator.save_state(output_dir=f"v{model_ver}/checkpoint")
+    accelerator.save_state(output_dir=f"{model_prefix}{model_ver}/checkpoint")
 
 
 if __name__ == "__main__":

@@ -58,7 +58,9 @@ def _encode(
     if not is_queen_move:
         return None
 
-    direction = (int(math.copysign(1, delta[0])), int(math.copysign(1, delta[1])))
+    direction0 = 1 if delta[0] > 0 else -1 if delta[0] < 0 else 0
+    direction1 = 1 if delta[1] > 0 else -1 if delta[1] < 0 else 0
+    direction = (direction0, direction1)
     distance = max(abs(delta[0]), abs(delta[1]))
 
     direction_idx = directions_indices[direction]

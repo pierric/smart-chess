@@ -133,7 +133,8 @@ class BoardHistory:
 
 class MoveEncoding:
 
-    def encode(self, turn, move: chess.Move) -> int:
+    @staticmethod
+    def encode(turn, move: chess.Move) -> int:
         """Converts a `chess.Move` object to the corresponding action.
         This method converts a `chess.Move` instance to the corresponding
         integer action for the current board position.
@@ -172,8 +173,8 @@ class MoveEncoding:
 
         return action
 
-
-    def decode(self, turn, action: int) -> chess.Move:
+    @staticmethod
+    def decode(turn, action: int) -> chess.Move:
         """Converts an action to the corresponding `chess.Move` object.
 
         This method converts an integer action to the corresponding `chess.Move`
@@ -233,10 +234,40 @@ def encode_boards(encoded_boards, length, last_board):
     return np.concatenate([array, meta], axis=-1)
 
 
+def decode_board(array):
+    benc = array[:, :, :14]
+    meta = array[0, 0, -7:].flatten()
+    turn = meta[0]
+
+    if turn == chess.BLACK:
+        benc = np.rot90(benc[:, :, :12], k=2)
+        benc = np.roll(benc, axis=-1, shift=6)
+    else:
+        benc = benc[:, :, :12]
+
+    board = chess.Board(fen=None)
+    cnt = 0
+
+    for rank in range(8):
+        for file in range(8):
+            # white: dim 0 - 5
+            # black: dim 6 - 11
+            for i in range(12):
+                color = chess.WHITE if i < 6 else chess.BLACK
+                if benc[rank, file, i]:
+                    cnt += 1
+                    piece_type = i + 1 if i < 6 else i - 5
+                    board.set_piece_at(chess.square(file, rank), chess.Piece(piece_type, color))
+
+    board.turn = turn
+
+    return board, turn, cnt
+
+
 TEMPERATURE = 1
 
 def encode_action(turn, move):
-    return MoveEncoding().encode(turn, move)
+    return MoveEncoding.encode(turn, move)
 
 
 def encode_prob(counts):

@@ -171,7 +171,10 @@ def dump_training_dataset(filename, game, node, outcome):
         target = np.zeros(8 * 8 * 73, dtype=np.float32)
         np.put_along_axis(target, act_enc, act_prob, 0)
 
-        dataset.append((board_enc, target, outcome_int))
+        # save the taken move so that I can render the full play from the beton file
+        taken_act = encode_action(board.turn, path[i+1].state.move)
+
+        dataset.append((board_enc, target, outcome_int, taken_act))
 
     write_beton(filename, dataset)
 
@@ -182,7 +185,8 @@ def dump_training_dataset(filename, game, node, outcome):
 @click.option("--n-epochs", default=20)
 @click.option("--model-ver")
 @click.option("--model-prefix", default="v")
-def main(n_epochs, n_rollout, moves_cutoff, model_ver, model_prefix):
+@click.option("--save-all", default=False)
+def main(n_epochs, n_rollout, moves_cutoff, model_ver, model_prefix, save_all):
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(message)s",
@@ -239,8 +243,8 @@ def main(n_epochs, n_rollout, moves_cutoff, model_ver, model_prefix):
         pbar.set_postfix(postfix)
         pbar.update()
 
-        save_all = model_ver is None
-        if save_all or winner in ["white", "black", "draw"]:
+        save_it = save_all or model_ver is None or winner in ["white", "black", "draw"]
+        if save_it:
             time = datetime.utcnow().strftime("%Y-%m-%d-%X")
             dump_training_dataset(f"{time}.beton", game, end_node, winner)
 

@@ -1,13 +1,14 @@
 import logging
-#from tqdm import tqdm
-from tqdm_loggable.auto import tqdm
 
-from mcts import mcts, Node, Game, max_index, expected_reward
+from tqdm_loggable.auto import tqdm
+import numpy as np
+
+from mcts import mcts, Node, Game, max_index
 
 logger = logging.getLogger(__name__)
 
 
-def self_play(game: Game, n_rollout: int, cutoff: int, root: Node, desc="Self-play"):
+def self_play(game: Game, n_rollout: int, cutoff: int, root: Node, temp:int = 1, desc="Self-play"):
     node = root
     reverse_q = False
 
@@ -29,7 +30,13 @@ def self_play(game: Game, n_rollout: int, cutoff: int, root: Node, desc="Self-pl
             if not node.children:
                 break
 
-            next_idx = max_index([expected_reward(c, reverse_q) for c in node.children])
+            if temp == 0:
+                next_idx = max_index([c.n_act for c in node.children])
+
+            else:
+                counts = np.array([c.n_act ** (1. / temp) for c in node.children])
+                pi = counts / counts.sum()
+                next_idx = np.random.choice(len(pi), p=pi)
 
             # prune the other branches to save memory
             # we have recorded the statistics, and don't revisit the node

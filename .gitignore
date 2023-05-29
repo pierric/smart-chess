@@ -1,5 +1,4 @@
 __pycache__/
 logs/
 *.beton
-v0/
-v1/
+v*/

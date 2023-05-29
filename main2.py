@@ -179,21 +179,20 @@ def dump_training_dataset(filename, game, node, outcome):
     write_beton(filename, dataset)
 
 
-@click.command()
-@click.option("--n-rollout", default=400)
+@click.group()
+def main():
+    pass
+
+
+@main.command()
+@click.option("--n-rollout", default=200)
 @click.option("--moves-cutoff", default=60)
 @click.option("--n-epochs", default=20)
 @click.option("--model-ver")
 @click.option("--model-prefix", default="v")
+@click.option("--temperature", default=1)
 @click.option("--save-all", default=False)
-def main(n_epochs, n_rollout, moves_cutoff, model_ver, model_prefix, save_all):
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(message)s",
-        datefmt='%Y-%m-%d,%H:%M:%S',
-        handlers=[logging.StreamHandler()]
-    )
-
+def play(n_epochs, n_rollout, moves_cutoff, model_ver, model_prefix, save_all):
     accelerator = Accelerator(
         mixed_precision="fp16",
         dynamo_backend="inductor",
@@ -206,17 +205,18 @@ def main(n_epochs, n_rollout, moves_cutoff, model_ver, model_prefix, save_all):
         accelerator.load_state(f"{model_prefix}{model_ver}/checkpoint")
     model.eval()
 
-    player1 = NNPlayer(model)
-    #player2 = RandomPlayer()
+    player = NNPlayer(model)
 
-    game = ChessWithTwoPlayer(player1, player1)
+    game = ChessWithTwoPlayer(player, player)
 
     postfix = {"w": 0, "b": 0, "d": 0, "u": 0}
     pbar = tqdm.tqdm(total=n_epochs)
 
     for idx in range(n_epochs):
         init = game.start()
-        end_node = self_play(game, n_rollout, moves_cutoff, init, desc=f"Self-play (Epoch {idx})")
+        end_node = self_play(
+            game, n_rollout, moves_cutoff, init, desc=f"Self-play (Epoch {idx})", temp=temperature
+        )
 
         outcome = game.replay(end_node, keep_history=False).outcome(claim_draw=True)
         if outcome is None:
@@ -246,10 +246,72 @@ def main(n_epochs, n_rollout, moves_cutoff, model_ver, model_prefix, save_all):
         save_it = save_all or model_ver is None or winner in ["white", "black", "draw"]
         if save_it:
             time = datetime.utcnow().strftime("%Y-%m-%d-%X")
-            dump_training_dataset(f"{time}.beton", game, end_node, winner)
+            dump_training_dataset(f"{time}-{winner[0]}.beton", game, end_node, winner)
+
+
+@main.command()
+@click.option("--n-rollout", default=200)
+@click.option("--moves-cutoff", default=100)
+@click.option("--n-epochs", default=20)
+@click.option("--model-prefix", default="v")
+@click.option("--player1-ver")
+@click.option("--player2-ver")
+def arena(model_prefix, player1_ver, player2_ver, n_epochs, n_rollout, moves_cutoff):
+    accelerator = Accelerator(
+        mixed_precision="fp16",
+        dynamo_backend="inductor",
+    )
+
+    import train
+
+    def make_player(model_ver):
+        player = train.ChessModel()
+        if model_ver is not None:
+            state = torch.load(f"{model_prefix}{model_ver}/checkpoint/pytorch_model.bin")
+            player.load_state_dict(state)
+        player = accelerator.prepare(player)
+
+        player.eval()
+        return NNPlayer(player)
+
+    player1 = make_player(player1_ver)
+    player2 = make_player(player2_ver)
+
+    game = ChessWithTwoPlayer(player1, player1)
+
+    postfix = {"w": 0, "b": 0, "d": 0, "u": 0}
+    pbar = tqdm.tqdm(total=n_epochs)
+
+    for idx in range(n_epochs):
+        init = game.start()
+        end_node = self_play(game, n_rollout, moves_cutoff, init, desc=f"Self-play (Epoch {idx})", temp=1)
+
+        outcome = game.replay(end_node, keep_history=False).outcome(claim_draw=True)
+        if outcome is None:
+            winner = "unknown"
+            postfix["u"] += 1
+        elif outcome.winner is None:
+            winner = "draw"
+            postfix["d"] += 1
+        elif outcome.winner == chess.WHITE:
+            winner = "white"
+            postfix["w"] += 1
+        elif outcome.winner == chess.BLACK:
+            winner = "black"
+            postfix["b"] += 1
+
+        pbar.set_postfix(postfix)
+        pbar.update()
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(message)s",
+        datefmt='%Y-%m-%d,%H:%M:%S',
+        handlers=[logging.StreamHandler()]
+    )
+
     main()
 
 

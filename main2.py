@@ -192,7 +192,7 @@ def main():
 @click.option("--model-prefix", default="v")
 @click.option("--temperature", default=1)
 @click.option("--save-all", default=False)
-def play(n_epochs, n_rollout, moves_cutoff, model_ver, model_prefix, save_all):
+def play(n_epochs, n_rollout, moves_cutoff, model_ver, model_prefix, save_all, temperature):
     accelerator = Accelerator(
         mixed_precision="fp16",
         dynamo_backend="inductor",

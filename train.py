@@ -1,3 +1,4 @@
+import random
 import glob
 import click
 import ffcv
@@ -7,7 +8,7 @@ from ffcv.fields.decoders import NDArrayDecoder, IntDecoder
 from torchvision.models import vgg11
 import torch
 import torch.nn as nn
-from torch.optim.lr_scheduler import OneCycleLR
+from torch.optim.lr_scheduler import OneCycleLR, CyclicLR
 from torch.nn.functional import mse_loss, log_softmax, tanh, relu
 from accelerate import Accelerator
 from accelerate.utils import LoggerType
@@ -47,17 +48,17 @@ class ChessModel(torch.nn.Module):
         self.conv_block = nn.Sequential(
             nn.Conv2d(14 * 8 + 7, 256, kernel_size=3, stride=1, padding=1, bias=False),
             nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
+            nn.LeakyReLU(inplace=True),
         )
 
-        self.res_blocks = nn.ModuleList([ResBlock()] * self.N_RES_BLOCKS )
+        self.res_blocks = nn.ModuleList([ResBlock() for _ in range(self.N_RES_BLOCKS)] )
 
         self.value_head = nn.Sequential(
             nn.Conv2d(256, 1, kernel_size=1, bias=False),
             nn.BatchNorm2d(1),
             nn.Flatten(),
             nn.Linear(64, 64),
-            nn.ReLU(inplace=True),
+            nn.LeakyReLU(inplace=True),
             nn.Linear(64, 1),
             nn.Tanh(),
         )
@@ -65,7 +66,7 @@ class ChessModel(torch.nn.Module):
         self.policy_head = nn.Sequential(
             nn.Conv2d(256, 128, kernel_size=1, bias=False),
             nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
+            nn.SiLU(inplace=True),
             nn.Flatten(),
             nn.Linear(8*8*128, 8*8*73),
             nn.LogSoftmax(dim=1),
@@ -98,7 +99,7 @@ def main(init_lr, num_epochs, model_ver, model_prefix, load_prev_ckpt):
     for dataset in datasets:
         dl = ffcv.Loader(
             dataset,
-            batch_size=4,
+            batch_size=8,
             order=ffcv.loader.OrderOption.RANDOM,
             pipelines={
                 "board": [NDArrayDecoder(), ToTensor(), ToTorchImage(), Convert(torch.float32)],
@@ -110,7 +111,8 @@ def main(init_lr, num_epochs, model_ver, model_prefix, load_prev_ckpt):
 
     num_total = sum(len(dl) for dl in dataloaders)
 
-    optimizer = torch.optim.Adam(params=model.parameters(), lr=init_lr, weight_decay=1e-5)
+    optimizer = torch.optim.AdamW(params=model.parameters(), lr=init_lr, weight_decay=1e-5)
+    #optimizer = torch.optim.SGD(params=model.parameters(), lr=init_lr, weight_decay=1e-5)
 
     lr_scheduler = OneCycleLR(
         optimizer=optimizer,
@@ -137,7 +139,7 @@ def main(init_lr, num_epochs, model_ver, model_prefix, load_prev_ckpt):
         optimizer, lr_scheduler
     )
 
-    dataloaders = accelerator.prepare(*dataloaders)
+    dataloaders = list(accelerator.prepare(*dataloaders))
 
     step = 0
     for epoch in range(num_epochs):
@@ -146,6 +148,7 @@ def main(init_lr, num_epochs, model_ver, model_prefix, load_prev_ckpt):
         accelerator.print(f"epoch {epoch}")
 
         with tqdm(total=num_total) as pbar:
+            random.shuffle(dataloaders)
             for dl in dataloaders:
                 for batch in dl:
                     batch = [v.to(accelerator.device) for v in batch]
@@ -162,7 +165,12 @@ def main(init_lr, num_epochs, model_ver, model_prefix, load_prev_ckpt):
                     loss = loss.detach().cpu().numpy()
                     lr = lr_scheduler.get_last_lr()[0]
                     accelerator.log(
-                        {"lr": lr, "train_loss": loss.item()},
+                        {
+                            "lr": lr,
+                            "train_loss": loss.item(),
+                            "loss1": loss1.detach().cpu().item(),
+                            "loss2": loss2.detach().cpu().item(),
+                        },
                         step=step
                     )
                     step+=1

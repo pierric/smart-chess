@@ -70,7 +70,7 @@ class ChessWithTwoPlayer(Chess):
         self.player1 = player1
         self.player2 = player2
 
-    def predict(self, node):
+    def predict(self, node, choose_max=False):
         path = []
         cnt = 0
 
@@ -114,7 +114,15 @@ class ChessWithTwoPlayer(Chess):
 
         act_enc = [encode_action(board.turn, m) for m in moves]
         act_prob = distr[act_enc]
-        return False, [Step(m, None) for m in moves], act_prob / act_prob.sum(), outcome
+
+        if choose_max:
+            next_idx = mcts.max_index(act_prob)
+            prob = np.zeros_like(act_prob)
+            prob[next_idx] = 1
+        else:
+            prob = act_prob / act_prob.sum()
+
+        return False, [Step(m, None) for m in moves], prob, outcome
 
 
 class RandomPlayer:
@@ -232,13 +240,18 @@ def play(n_epochs, n_rollout, moves_cutoff, model_ver, model_prefix, save_all, t
             winner = "black"
             postfix["b"] += 1
 
-        if idx % 2 == 0:
-            logger.info(f"Outcome: {winner} Root Q: {init.q}")
+        end_children_status = ""
+        for i, n in enumerate(end_node.parent.children):
+            end_children_status += f"child {i:03}: nsa: {n.n_act}, q: {n.q}\n"
+        logger.info(end_children_status)
 
-            root_children_status = ""
-            for i, n in enumerate(init.children):
-                root_children_status += f"child {i:03}: nsa: {n.n_act}, q: {n.q}\n"
-            logger.info(root_children_status)
+        #if idx % 2 == 0:
+        #    logger.info(f"Outcome: {winner} Root Q: {init.q}")
+
+        #    root_children_status = ""
+        #    for i, n in enumerate(init.children):
+        #        root_children_status += f"child {i:03}: nsa: {n.n_act}, q: {n.q}\n"
+        #    logger.info(root_children_status)
 
         pbar.set_postfix(postfix)
         pbar.update()
@@ -284,7 +297,7 @@ def arena(model_prefix, player1_ver, player2_ver, n_epochs, n_rollout, moves_cut
 
     for idx in range(n_epochs):
         init = game.start()
-        end_node = self_play(game, n_rollout, moves_cutoff, init, desc=f"Self-play (Epoch {idx})", temp=1)
+        end_node = self_play(game, n_rollout, moves_cutoff, init, desc=f"Self-play (Epoch {idx})", temp=0)
 
         outcome = game.replay(end_node, keep_history=False).outcome(claim_draw=True)
         if outcome is None:
@@ -313,8 +326,3 @@ if __name__ == "__main__":
     )
 
     main()
-
-
-
-
-

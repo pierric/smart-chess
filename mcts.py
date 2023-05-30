@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 EPSILON = 1e-4
-CPUCT = 2.0
+CPUCT = 1.2
 
 BoardType = TypeVar("BoardType")
 StepType = TypeVar("StepType")
@@ -80,7 +80,7 @@ def select(game: Game, node: Node, reverse_q: bool) -> Tuple[Node, int]:
         #
         # the more times the node is visited, the more likely to explore those less-visited children
         #
-        _, _, prior, _ = game.predict(node)
+        _, _, prior, _ = game.predict(node, choose_max=False)
         # adding the Dir(0.03) noise
         # https://stats.stackexchange.com/questions/322831/purpose-of-dirichlet-noise-in-the-alphazero-paper
         prior = prior * 0.75 + np.random.dirichlet([0.03]*len(prior)) * 0.25
@@ -102,7 +102,7 @@ def simulate(game: Game, node: Node, cutoff: int) -> Tuple[Node, int, float]:
 
     while True:
 
-        give_up, moves, distr, outcome = game.predict(node)
+        give_up, moves, distr, outcome = game.predict(node, choose_max=True)
 
         if steps >= cutoff or len(distr) == 0 or give_up:
             return node, steps, outcome

@@ -53,7 +53,9 @@ def uct(sqrt_total_num_vis, prior, move_q, move_n_act, reverse_q):
     if reverse_q:
         average_award = -average_award
 
-    exploration = sqrt_total_num_vis / (1 + move_n_act) * CPUCT * prior
+    # plus EPSILON to ensure that exploration factor isn't zero
+    # in case q and n_act are zero, the choice will fully based on the prior
+    exploration = (sqrt_total_num_vis + EPSILON) / (1 + move_n_act) * CPUCT * prior
     return average_award + exploration
 
 
@@ -75,12 +77,23 @@ def select(game: Game, node: Node, reverse_q: bool) -> Tuple[Node, int]:
     """
     path_length = 1
 
-    while node.children:
+    while True:
         #sqrt_total_num_act = math.sqrt(sum(c.n_act for c in node.children))
         #
         # the more times the node is visited, the more likely to explore those less-visited children
         #
-        _, _, prior, _ = game.predict(node, choose_max=False)
+        _, moves, prior, outcome = game.predict(node, choose_max=False)
+
+        if not node.children:
+            # reaching a leaf node, either game is done, or it isn't finished, then
+            # we expand the node (in the future if ever chosen the same node, will go
+            # one level deeper). In both case, the predicted outcome is the result.
+
+            for step in moves:
+                node.children.append(Node(step, 0, 0, node, []))
+
+            return (node, path_length, outcome)
+
         # adding the Dir(0.03) noise
         # https://stats.stackexchange.com/questions/322831/purpose-of-dirichlet-noise-in-the-alphazero-paper
         prior = prior * 0.75 + np.random.dirichlet([0.03]*len(prior)) * 0.25
@@ -94,26 +107,26 @@ def select(game: Game, node: Node, reverse_q: bool) -> Tuple[Node, int]:
         node.n_act += 1
         path_length += 1
 
-    return (node, path_length)
 
-
-def simulate(game: Game, node: Node, cutoff: int) -> Tuple[Node, int, float]:
-    steps = 0
-
-    while True:
-
-        give_up, moves, distr, outcome = game.predict(node, choose_max=True)
-
-        if steps >= cutoff or len(distr) == 0 or give_up:
-            return node, steps, outcome
-
-        assert len(node.children) == 0
-        for step in moves:
-            node.children.append(Node(step, 0, 0, node, []))
-
-        steps += 1
-        node = np.random.choice(node.children, p=distr)
-        node.n_act += 1
+#def simulate(game: Game, node: Node, cutoff: int, choose_max: bool) -> Tuple[Node, int, float]:
+#    steps = 0
+#
+#    while True:
+#
+#        give_up, moves, distr, outcome = game.predict(node, choose_max=choose_max)
+#
+#        if steps >= cutoff or len(distr) == 0 or give_up:
+#            return node, steps, outcome
+#
+#        if node.children:
+#            assert len(node.children) == len(moves)
+#        else:
+#            for step in moves:
+#                node.children.append(Node(step, 0, 0, node, []))
+#
+#        steps += 1
+#        node = np.random.choice(node.children, p=distr)
+#        node.n_act += 1
 
 
 def backward(node: Node, reward: float, length: int):
@@ -124,14 +137,20 @@ def backward(node: Node, reward: float, length: int):
         node = node.parent
 
 
-def mcts(game: Game, n_rollout: int, root: Node, reverse_q: bool, cutoff: int) -> List[Tuple[Node, float]]:
+def mcts(
+    game: Game,
+    n_rollout: int,
+    root: Node,
+    reverse_q: bool,
+) -> List[Tuple[Node, float]]:
+
     ends = []
 
     for _ in trange(n_rollout, desc="Roll-out", leave=False):
-        leaf, sel_length = select(game, root, reverse_q)
-        last, sim_length, reward = simulate(game, leaf, cutoff - sel_length)
-        backward(last, reward, sel_length + sim_length)
-        ends.append((last, reward))
+
+        leaf, sel_length, reward = select(game, root, reverse_q)
+        backward(leaf, reward, sel_length)
+        ends.append((leaf, reward))
 
     return ends
 

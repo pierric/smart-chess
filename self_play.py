@@ -8,7 +8,14 @@ from mcts import mcts, Node, Game, max_index
 logger = logging.getLogger(__name__)
 
 
-def self_play(game: Game, n_rollout: int, cutoff: int, root: Node, temp:int = 1, desc="Self-play"):
+def self_play(
+    game: Game,
+    n_rollout: int,
+    cutoff: int,
+    root: Node,
+    temp:int = 1,
+    desc="Play",
+):
     node = root
     reverse_q = False
 
@@ -19,13 +26,13 @@ def self_play(game: Game, n_rollout: int, cutoff: int, root: Node, temp:int = 1,
             if current_steps >= cutoff:
                 break
 
-            mcts(game, n_rollout, node, reverse_q, cutoff)
+            mcts(game, n_rollout, node, reverse_q)
 
-            if node.parent is None:
-                root_children_status = ""
-                for i, n in enumerate(node.children):
-                    root_children_status += f"child {i:03}: nsa: {n.n_act}, q: {n.q}\n"
-                logger.info(root_children_status)
+            #if node.parent is None:
+            #    root_children_status = ""
+            #    for i, n in enumerate(node.children):
+            #        root_children_status += f"child {i:03}: nsa: {n.n_act}, q: {n.q}\n"
+            #    logger.info(root_children_status)
 
             if not node.children:
                 break

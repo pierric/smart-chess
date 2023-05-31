@@ -6,15 +6,17 @@ from typing import Optional
 
 import chess
 import numpy as np
-import mcts
-from self_play import self_play
-from encode import encode_boards, encode_action, encode_prob, BoardHistory
-from beton import write_beton
 import torch
 import torch._dynamo
 from accelerate import Accelerator
 import tqdm
 import click
+
+import train
+import mcts
+from self_play import self_play
+from encode import encode_boards, encode_action, encode_prob, BoardHistory
+from beton import write_beton
 
 logger = logging.getLogger(__name__)
 
@@ -107,29 +109,30 @@ class ChessWithTwoPlayer(Chess):
         board_enc = encode_boards([n.state.encoded_board for n in path], 8, board)
 
         if board.turn == chess.WHITE:
-            distr, outcome = self.player1(board_enc)
+            log_distr, outcome = self.player1(board_enc)
         else:
-            distr, outcome = self.player2(board_enc)
+            log_distr, outcome = self.player2(board_enc)
             outcome = -outcome
 
         act_enc = [encode_action(board.turn, m) for m in moves]
-        act_prob = distr[act_enc]
+        act_log_prob = log_distr[act_enc]
 
         if choose_max:
-            next_idx = mcts.max_index(act_prob)
-            prob = np.zeros_like(act_prob)
+            next_idx = mcts.max_index(act_log_prob)
+            prob = np.zeros_like(act_log_prob)
             prob[next_idx] = 1
         else:
-            prob = act_prob / act_prob.sum()
+            prob = np.exp(act_log_prob)
+            prob = prob / prob.sum()
 
         return False, [Step(m, None) for m in moves], prob, outcome
 
 
-class RandomPlayer:
-    def __call__(self, board_enc):
-        prob = np.ones(4672, dtype="float32")
-        prob /= prob.size
-        return prob, 0
+#class RandomPlayer:
+#    def __call__(self, board_enc):
+#        prob = np.ones(4672, dtype="float32")
+#        prob /= prob.size
+#        return prob, 0
 
 
 class NNPlayer:
@@ -139,13 +142,16 @@ class NNPlayer:
     def __call__(self, board_enc):
         inp = torch.tensor(board_enc).float().unsqueeze(0).cuda()
         inp = inp.permute(0, 3, 1, 2)
-        with torch.inference_mode():
+        #inp = inp.to(memory_format=torch.channels_last)
+
+        #with torch.inference_mode():
+        with torch.no_grad(), torch.autocast(device_type='cuda', dtype=torch.float16):
             prob, outcome = self.model(inp)
             prob = prob[0]
             outcome = outcome[0]
             prob = prob.detach().cpu().numpy()
-            outcome = (outcome + outcome.sign()* 0.5).trunc().detach().cpu().numpy().item()
-        return prob, outcome
+            outcome = outcome.detach().cpu().item()
+            return prob, outcome
 
 
 def dump_training_dataset(filename, game, node, outcome):
@@ -206,7 +212,6 @@ def play(n_epochs, n_rollout, moves_cutoff, model_ver, model_prefix, save_all, t
         dynamo_backend="inductor",
     )
 
-    import train
     model = train.ChessModel()
     model = accelerator.prepare(model)
     if model_ver is not None:
@@ -270,10 +275,6 @@ def play(n_epochs, n_rollout, moves_cutoff, model_ver, model_prefix, save_all, t
 @click.option("--player1-ver")
 @click.option("--player2-ver")
 def arena(model_prefix, player1_ver, player2_ver, n_epochs, n_rollout, moves_cutoff):
-    accelerator = Accelerator(
-        mixed_precision="fp16",
-        dynamo_backend="inductor",
-    )
 
     import train
 
@@ -282,10 +283,11 @@ def arena(model_prefix, player1_ver, player2_ver, n_epochs, n_rollout, moves_cut
         if model_ver is not None:
             state = torch.load(f"{model_prefix}{model_ver}/checkpoint/pytorch_model.bin")
             player.load_state_dict(state)
-        player = accelerator.prepare(player)
 
         player.eval()
-        return NNPlayer(player)
+        player = player.cuda()
+        player_opt = torch.compile(player, mode="reduce-overhead")
+        return NNPlayer(player_opt)
 
     player1 = make_player(player1_ver)
     player2 = make_player(player2_ver)
@@ -297,7 +299,14 @@ def arena(model_prefix, player1_ver, player2_ver, n_epochs, n_rollout, moves_cut
 
     for idx in range(n_epochs):
         init = game.start()
-        end_node = self_play(game, n_rollout, moves_cutoff, init, desc=f"Self-play (Epoch {idx})", temp=0)
+        end_node = self_play(
+            game,
+            n_rollout,
+            moves_cutoff,
+            init,
+            desc=f"Play (Epoch {idx})",
+            temp=1,
+        )
 
         outcome = game.replay(end_node, keep_history=False).outcome(claim_draw=True)
         if outcome is None:

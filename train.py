@@ -78,7 +78,7 @@ class ChessModel(torch.nn.Module):
         for block in self.res_blocks:
             x = block(x)
 
-        v1 = self.policy_head(x).exp()
+        v1 = self.policy_head(x)
         v2 = self.value_head(x)
         return v1, v2
 
@@ -94,7 +94,7 @@ def main(init_lr, num_epochs, model_ver, model_prefix, load_prev_ckpt):
 
     dataloaders = []
 
-    datasets = glob.glob(f"{model_prefix}{model_ver}/dataset/*.beton")
+    datasets = glob.glob(f"{model_prefix}{model_ver}/dataset/**/*.beton", recursive=True)
 
     for dataset in datasets:
         dl = ffcv.Loader(
@@ -111,7 +111,7 @@ def main(init_lr, num_epochs, model_ver, model_prefix, load_prev_ckpt):
 
     num_total = sum(len(dl) for dl in dataloaders)
 
-    optimizer = torch.optim.AdamW(params=model.parameters(), lr=init_lr, weight_decay=1e-5)
+    optimizer = torch.optim.AdamW(params=model.parameters(), lr=init_lr, weight_decay=1e-2)
     #optimizer = torch.optim.SGD(params=model.parameters(), lr=init_lr, weight_decay=1e-5)
 
     lr_scheduler = OneCycleLR(
@@ -154,10 +154,11 @@ def main(init_lr, num_epochs, model_ver, model_prefix, load_prev_ckpt):
                     batch = [v.to(accelerator.device) for v in batch]
                     output_distr, output_award = model(batch[0])
 
-                    loss1 = - torch.sum(output_distr.log() * batch[1], dim=1).mean()
-                    loss2 = mse_loss(output_award, batch[2])
+                    with accelerator.autocast():
+                        loss1 = - torch.sum(output_distr * batch[1], dim=1).mean()
+                        loss2 = mse_loss(output_award, batch[2])
+                        loss = loss1 + loss2
 
-                    loss = loss1 + loss2
                     accelerator.backward(loss)
                     optimizer.step()
                     lr_scheduler.step()

@@ -1,3 +1,4 @@
+import math
 import random
 import glob
 import click
@@ -13,6 +14,8 @@ from torch.nn.functional import mse_loss, log_softmax, tanh, relu
 from accelerate import Accelerator
 from accelerate.utils import LoggerType
 from tqdm import tqdm
+import numpy as np
+import neptune
 
 
 class ResBlock(nn.Module):
@@ -66,7 +69,7 @@ class ChessModel(torch.nn.Module):
         self.policy_head = nn.Sequential(
             nn.Conv2d(256, 128, kernel_size=1, bias=False),
             nn.BatchNorm2d(128),
-            nn.SiLU(inplace=True),
+            nn.LeakyReLU(inplace=True),
             nn.Flatten(),
             nn.Linear(8*8*128, 8*8*73),
             nn.LogSoftmax(dim=1),
@@ -83,6 +86,20 @@ class ChessModel(torch.nn.Module):
         return v1, v2
 
 
+def get_grad_l2(model):
+    l2 = []
+    for n, p in model.named_parameters():
+        v = torch.norm(p.grad, p=2).detach().cpu().item()
+
+        #if math.isnan(v) or math.isinf(v):
+        #    vp = torch.norm(p, p=2).detach().cpu().item()
+        #    print("grad l2 nan: ", n, v, vp)
+
+        l2.append(v)
+
+    return np.mean(l2)
+
+
 @click.command()
 @click.option("--init-lr", default=0.001)
 @click.option("--num-epochs", default=30)
@@ -90,6 +107,10 @@ class ChessModel(torch.nn.Module):
 @click.option("--model-prefix", default="v")
 @click.option("--load-prev-ckpt", default=True)
 def main(init_lr, num_epochs, model_ver, model_prefix, load_prev_ckpt):
+
+    run = neptune.init_run(project="jiasen/smart-chess")
+    run["parameters"] = {"init_lr": init_lr, "num_epochs": num_epochs, "model_ver": model_ver}
+
     model = ChessModel()
 
     dataloaders = []
@@ -111,8 +132,8 @@ def main(init_lr, num_epochs, model_ver, model_prefix, load_prev_ckpt):
 
     num_total = sum(len(dl) for dl in dataloaders)
 
-    optimizer = torch.optim.AdamW(params=model.parameters(), lr=init_lr, weight_decay=1e-2)
-    #optimizer = torch.optim.SGD(params=model.parameters(), lr=init_lr, weight_decay=1e-5)
+    #optimizer = torch.optim.AdamW(params=model.parameters(), lr=init_lr, eps=1e-4, weight_decay=1e-3)
+    optimizer = torch.optim.SGD(params=model.parameters(), lr=1e-4, weight_decay=1e-3)
 
     lr_scheduler = OneCycleLR(
         optimizer=optimizer,
@@ -122,12 +143,9 @@ def main(init_lr, num_epochs, model_ver, model_prefix, load_prev_ckpt):
     )
 
     accelerator = Accelerator(
-        log_with="tensorboard",
-        project_dir=".",
         mixed_precision="fp16",
         #dynamo_backend="INDUCTOR",
     )
-    accelerator.init_trackers("logs", config={"init_lr": init_lr, "num_epochs": num_epochs})
 
     model = accelerator.prepare(model)
 
@@ -154,31 +172,51 @@ def main(init_lr, num_epochs, model_ver, model_prefix, load_prev_ckpt):
                     batch = [v.to(accelerator.device) for v in batch]
                     output_distr, output_award = model(batch[0])
 
-                    with accelerator.autocast():
-                        loss1 = - torch.sum(output_distr * batch[1], dim=1).mean()
-                        loss2 = mse_loss(output_award, batch[2])
-                        loss = loss1 + loss2
+                    # loss computed in float32
+                    loss1 = - torch.sum(output_distr * batch[1], dim=1).mean()
+                    loss2 = mse_loss(output_award, batch[2])
+                    loss = loss1 + loss2
 
                     accelerator.backward(loss)
+
+                    #if accelerator.sync_gradients:
+                    accelerator.clip_grad_norm_(model.parameters(), 10)
+
+                    grad_l2 = get_grad_l2(model)
+                    if math.isnan(grad_l2) or math.isinf(grad_l2):
+                        grad_l2 = 0
+
                     optimizer.step()
                     lr_scheduler.step()
                     optimizer.zero_grad()
-                    loss = loss.detach().cpu().numpy()
-                    lr = lr_scheduler.get_last_lr()[0]
-                    accelerator.log(
-                        {
-                            "lr": lr,
-                            "train_loss": loss.item(),
-                            "loss1": loss1.detach().cpu().item(),
-                            "loss2": loss2.detach().cpu().item(),
-                        },
-                        step=step
-                    )
+
+                    if accelerator.optimizer_step_was_skipped:
+                        accelerator.print("Skipping one step")
+
+                    if accelerator.is_main_process:
+                        loss1 = loss1.detach().cpu().item()
+                        loss2 = loss2.detach().cpu().item()
+                        lr = lr_scheduler.get_last_lr()[0]
+                        scale = optimizer.scaler.get_scale()
+
+                        run["training/lr"].log(lr)
+                        run["training/loss1"].log(loss1)
+                        run["training/loss2"].log(loss2)
+                        run["training/l2"].log(grad_l2)
+                        run["training/scale"].log(scale)
+
                     step+=1
                     pbar.update()
 
-    accelerator.end_training()
+        l2 = 0
+        for p in model.parameters():
+            l2 += torch.norm(p, p=2)
+        l2 = l2.item()
+        print(f"L2: {l2}")
+        run["training/l2"].append(l2)
+
     accelerator.save_state(output_dir=f"{model_prefix}{model_ver}/checkpoint")
+    run.stop()
 
 
 if __name__ == "__main__":

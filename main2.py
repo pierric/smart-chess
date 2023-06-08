@@ -109,13 +109,23 @@ class ChessWithTwoPlayer(Chess):
         board_enc = encode_boards([n.state.encoded_board for n in path], 8, board)
 
         if board.turn == chess.WHITE:
+            cc = 0
             log_distr, outcome = self.player1(board_enc)
         else:
+            cc = 1
             log_distr, outcome = self.player2(board_enc)
             outcome = -outcome
 
         act_enc = [encode_action(board.turn, m) for m in moves]
         act_log_prob = log_distr[act_enc]
+
+        if np.isnan(act_log_prob).any() or np.isinf(act_log_prob).any():
+            logger.warning("!!!! action distr has nan/inf. !!!!")
+            act_log_prob = np.ones_like(act_log_prob) / len(act_log_prob)
+
+        if np.isnan(outcome) or np.isinf(outcome):
+            logger.warning("!!!! the outcome is nan/inf. !!!!")
+            outcome = 0
 
         if choose_max:
             next_idx = mcts.max_index(act_log_prob)
@@ -209,7 +219,7 @@ def main():
 def play(n_epochs, n_rollout, moves_cutoff, model_ver, model_prefix, save_all, temperature):
     accelerator = Accelerator(
         mixed_precision="fp16",
-        dynamo_backend="inductor",
+        #dynamo_backend="inductor",
     )
 
     model = train.ChessModel()

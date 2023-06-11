@@ -100,32 +100,32 @@ class ChessWithTwoPlayer(Chess):
         moves = list(board.legal_moves)
 
         if len(moves) == 0:
-            return False, [], [], self.judge(board)
+            return False, [], [], self.judge(board), 0
 
         # give up playing
         if board.can_claim_draw():
-            return True, [], [], 0
+            return True, [], [], 0, 0
 
         board_enc = encode_boards([n.state.encoded_board for n in path], 8, board)
 
         if board.turn == chess.WHITE:
-            cc = 0
             log_distr, outcome = self.player1(board_enc)
         else:
-            cc = 1
             log_distr, outcome = self.player2(board_enc)
             outcome = -outcome
 
         act_enc = [encode_action(board.turn, m) for m in moves]
-        act_log_prob = log_distr[act_enc]
+        act_log_prob = log_distr[act_enc].astype(np.float32)
 
         if np.isnan(act_log_prob).any() or np.isinf(act_log_prob).any():
             logger.warning("!!!! action distr has nan/inf. !!!!")
-            act_log_prob = np.ones_like(act_log_prob) / len(act_log_prob)
+            act_log_prob = np.log(np.ones_like(act_log_prob) / len(act_log_prob))
 
         if np.isnan(outcome) or np.isinf(outcome):
             logger.warning("!!!! the outcome is nan/inf. !!!!")
             outcome = 0
+
+        Z = 0
 
         if choose_max:
             next_idx = mcts.max_index(act_log_prob)
@@ -133,9 +133,16 @@ class ChessWithTwoPlayer(Chess):
             prob[next_idx] = 1
         else:
             prob = np.exp(act_log_prob)
-            prob = prob / prob.sum()
+            sum = prob.sum()
 
-        return False, [Step(m, None) for m in moves], prob, outcome
+            if sum == 0:
+                #logger.warning("!!!! action distr sums up to be zero. !!!!")
+                Z = 1
+                prob = np.ones_like(prob) / len(prob)
+            else:
+                prob = prob / prob.sum()
+
+        return False, [Step(m, None) for m in moves], prob, outcome, Z
 
 
 #class RandomPlayer:
@@ -284,9 +291,8 @@ def play(n_epochs, n_rollout, moves_cutoff, model_ver, model_prefix, save_all, t
 @click.option("--model-prefix", default="v")
 @click.option("--player1-ver")
 @click.option("--player2-ver")
-def arena(model_prefix, player1_ver, player2_ver, n_epochs, n_rollout, moves_cutoff):
-
-    import train
+@click.option("--temperature", default=1)
+def arena(model_prefix, player1_ver, player2_ver, n_epochs, n_rollout, moves_cutoff, temperature):
 
     def make_player(model_ver):
         player = train.ChessModel()
@@ -307,6 +313,8 @@ def arena(model_prefix, player1_ver, player2_ver, n_epochs, n_rollout, moves_cut
     postfix = {"w": 0, "b": 0, "d": 0, "u": 0}
     pbar = tqdm.tqdm(total=n_epochs)
 
+    records = []
+
     for idx in range(n_epochs):
         init = game.start()
         end_node = self_play(
@@ -315,10 +323,14 @@ def arena(model_prefix, player1_ver, player2_ver, n_epochs, n_rollout, moves_cut
             moves_cutoff,
             init,
             desc=f"Play (Epoch {idx})",
-            temp=1,
+            temp=temperature,
         )
 
-        outcome = game.replay(end_node, keep_history=False).outcome(claim_draw=True)
+        end_board = game.replay(end_node, keep_history=True)
+
+        records.append(end_board.move_stack)
+
+        outcome = end_board.outcome(claim_draw=True)
         if outcome is None:
             winner = "unknown"
             postfix["u"] += 1
@@ -334,6 +346,10 @@ def arena(model_prefix, player1_ver, player2_ver, n_epochs, n_rollout, moves_cut
 
         pbar.set_postfix(postfix)
         pbar.update()
+
+    with open("records.txt", "w") as rf:
+        for moves in records:
+            rf.write(",".join([str(m) for m in moves]) + "\n")
 
 
 if __name__ == "__main__":

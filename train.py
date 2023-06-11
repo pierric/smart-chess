@@ -133,7 +133,7 @@ def main(init_lr, num_epochs, model_ver, model_prefix, load_prev_ckpt):
     num_total = sum(len(dl) for dl in dataloaders)
 
     #optimizer = torch.optim.AdamW(params=model.parameters(), lr=init_lr, eps=1e-4, weight_decay=1e-3)
-    optimizer = torch.optim.SGD(params=model.parameters(), lr=1e-4, weight_decay=1e-3)
+    optimizer = torch.optim.SGD(params=model.parameters(), lr=1e-4, weight_decay=1e-4)
 
     lr_scheduler = OneCycleLR(
         optimizer=optimizer,

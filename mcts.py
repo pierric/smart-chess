@@ -70,19 +70,22 @@ def max_index(values: List[float]) -> int:
     return random.choice(best)
 
 
-def select(game: Game, node: Node, reverse_q: bool) -> Tuple[Node, int]:
+def select(game: Game, node: Node, reverse_q: bool) -> Tuple[Node, int, int]:
     """
     Descend in the tree until some leaf, exploiting the knowledge to choose
     the best child each time.
     """
     path_length = 1
 
+    z = 0
+
     while True:
         #sqrt_total_num_act = math.sqrt(sum(c.n_act for c in node.children))
         #
         # the more times the node is visited, the more likely to explore those less-visited children
         #
-        _, moves, prior, outcome = game.predict(node, choose_max=False)
+        _, moves, prior, outcome, z0 = game.predict(node, choose_max=False)
+        z += z0
 
         if not node.children:
             # reaching a leaf node, either game is done, or it isn't finished, then
@@ -92,14 +95,14 @@ def select(game: Game, node: Node, reverse_q: bool) -> Tuple[Node, int]:
             for step in moves:
                 node.children.append(Node(step, 0, 0, node, []))
 
-            return (node, path_length, outcome)
+            return (node, path_length, outcome, z)
 
         # adding the Dir(0.03) noise
         # https://stats.stackexchange.com/questions/322831/purpose-of-dirichlet-noise-in-the-alphazero-paper
-        prior = prior * 0.75 + np.random.dirichlet([0.03]*len(prior)) * 0.25
+        prior_rand = prior * 0.75 + np.random.dirichlet([0.03]*len(prior)) * 0.25
         sqrt_total_num_vis = math.sqrt(sum(c.n_act for c in node.children))
         uct_children = [
-            uct(sqrt_total_num_vis, p, c.q, c.n_act, reverse_q) for p, c in zip(prior, node.children)
+            uct(sqrt_total_num_vis, p, c.q, c.n_act, reverse_q) for p, c in zip(prior_rand, node.children)
         ]
         #if node.parent is None:
         #    logger.info(" ".join(map(lambda v: f"{v:0.1}", uct_children)))
@@ -145,14 +148,16 @@ def mcts(
 ) -> List[Tuple[Node, float]]:
 
     ends = []
+    z = 0
 
     for _ in trange(n_rollout, desc="Roll-out", leave=False):
 
-        leaf, sel_length, reward = select(game, root, reverse_q)
+        leaf, sel_length, reward, z0 = select(game, root, reverse_q)
+        z += z0
         backward(leaf, reward, sel_length)
         ends.append((leaf, reward))
 
-    return ends
+    return ends, z
 
     # NOTE use the expected reward seems to be very bad, because it will basically select the same action
     # for all the run of self-play with the same search tree.

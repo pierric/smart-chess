@@ -19,6 +19,9 @@ def self_play(
     node = root
     reverse_q = False
 
+    # z indicates how many times model gives a bad prediction
+    z = 0
+
     with tqdm(desc=desc, leave=False) as pbar:
         while True:
             current_steps = pbar.n + 1
@@ -26,7 +29,9 @@ def self_play(
             if current_steps >= cutoff:
                 break
 
-            mcts(game, n_rollout, node, reverse_q)
+            _, z0 = mcts(game, n_rollout, node, reverse_q)
+            z += z0
+            pbar.set_postfix({"z": z})
 
             #if node.parent is None:
             #    root_children_status = ""

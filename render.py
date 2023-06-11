@@ -1,5 +1,6 @@
 from tempfile import mkdtemp
 import os
+from pathlib import Path
 from subprocess import check_call
 
 import matplotlib.cm
@@ -12,9 +13,33 @@ import chess.svg
 from encode import decode_board, MoveEncoding
 
 
-@click.command()
+@click.group()
+def main():
+    pass
+
+
+@main.command()
+@click.argument("records_file", default="records.txt")
+def records(records_file):
+    with open(records_file, "r") as rf:
+
+        tmpdir = Path(mkdtemp())
+        print(f"### Generating svgs in {tmpdir} ###")
+
+        for idx, line in enumerate(rf):
+            path = tmpdir / str(idx)
+            path.mkdir()
+            board = chess.Board()
+
+            for s, m in enumerate(line.strip().split(",")):
+                board.push(chess.Move.from_uci(m))
+                img = chess.svg.board(board, orientation=board.turn, flipped=board.turn==chess.BLACK, size=350)
+                (path / f"{s:02d}.svg").write_text(img)
+
+
+@main.command()
 @click.argument("beton_file")
-def main(beton_file):
+def beton(beton_file):
     dl = ffcv.Loader(
         beton_file,
         batch_size=1,

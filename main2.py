@@ -222,8 +222,9 @@ def main():
 @click.option("--model-ver")
 @click.option("--model-prefix", default="v")
 @click.option("--temperature", default=1)
+@click.option("--cpuct", default=mcts.CPUCT)
 @click.option("--save-all", default=False)
-def play(n_epochs, n_rollout, moves_cutoff, model_ver, model_prefix, save_all, temperature):
+def play(n_epochs, n_rollout, moves_cutoff, model_ver, model_prefix, save_all, temperature, cpuct):
     accelerator = Accelerator(
         mixed_precision="fp16",
         #dynamo_backend="inductor",
@@ -240,12 +241,15 @@ def play(n_epochs, n_rollout, moves_cutoff, model_ver, model_prefix, save_all, t
     game = ChessWithTwoPlayer(player, player)
 
     postfix = {"w": 0, "b": 0, "d": 0, "u": 0}
-    pbar = tqdm.tqdm(total=n_epochs)
+    pbar = tqdm.tqdm(total=n_epochs, desc="Epoch")
 
     for idx in range(n_epochs):
         init = game.start()
         end_node = self_play(
-            game, n_rollout, moves_cutoff, init, desc=f"Self-play (Epoch {idx})", temp=temperature
+            game, n_rollout, moves_cutoff, init,
+            desc=f"Self-play (Epoch {idx})",
+            temp=temperature,
+            cpuct=cpuct,
         )
 
         outcome = game.replay(end_node, keep_history=False).outcome(claim_draw=True)
@@ -291,8 +295,9 @@ def play(n_epochs, n_rollout, moves_cutoff, model_ver, model_prefix, save_all, t
 @click.option("--model-prefix", default="v")
 @click.option("--player1-ver")
 @click.option("--player2-ver")
+@click.option("--cpuct", default=mcts.CPUCT)
 @click.option("--temperature", default=1)
-def arena(model_prefix, player1_ver, player2_ver, n_epochs, n_rollout, moves_cutoff, temperature):
+def arena(model_prefix, player1_ver, player2_ver, n_epochs, n_rollout, moves_cutoff, temperature, cpuct):
 
     def make_player(model_ver):
         player = train.ChessModel()
@@ -324,6 +329,7 @@ def arena(model_prefix, player1_ver, player2_ver, n_epochs, n_rollout, moves_cut
             init,
             desc=f"Play (Epoch {idx})",
             temp=temperature,
+            cpuct=cpuct,
         )
 
         end_board = game.replay(end_node, keep_history=True)

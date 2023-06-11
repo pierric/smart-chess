@@ -13,7 +13,8 @@ def self_play(
     n_rollout: int,
     cutoff: int,
     root: Node,
-    temp:int = 1,
+    temp: int = 1,
+    cpuct: float = None,
     desc="Play",
 ):
     node = root
@@ -29,7 +30,7 @@ def self_play(
             if current_steps >= cutoff:
                 break
 
-            _, z0 = mcts(game, n_rollout, node, reverse_q)
+            _, z0 = mcts(game, n_rollout, node, reverse_q, cpuct=cpuct)
             z += z0
             pbar.set_postfix({"z": z})
 

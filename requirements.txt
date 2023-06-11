@@ -6,6 +6,7 @@ onnx==1.13.1
 onnxruntime==1.14.1
 git+https://github.com/huggingface/pytorch-image-models.git@5e64777804154b510ab41f0ace5ae30551bc991b
 click==8.0.1
+neptune==1.2.0
 torch
 torchvision
 

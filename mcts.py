@@ -47,7 +47,7 @@ class Game(Protocol, Generic[StepType, BoardType]):
         """
 
 
-def uct(sqrt_total_num_vis, prior, move_q, move_n_act, reverse_q):
+def uct(sqrt_total_num_vis, prior, move_q, move_n_act, reverse_q, cpuct):
 
     average_award = move_q / (move_n_act + EPSILON)
     if reverse_q:
@@ -55,7 +55,7 @@ def uct(sqrt_total_num_vis, prior, move_q, move_n_act, reverse_q):
 
     # plus EPSILON to ensure that exploration factor isn't zero
     # in case q and n_act are zero, the choice will fully based on the prior
-    exploration = (sqrt_total_num_vis + EPSILON) / (1 + move_n_act) * CPUCT * prior
+    exploration = (sqrt_total_num_vis + EPSILON) / (1 + move_n_act) * cpuct * prior
     return average_award + exploration
 
 
@@ -70,7 +70,7 @@ def max_index(values: List[float]) -> int:
     return random.choice(best)
 
 
-def select(game: Game, node: Node, reverse_q: bool) -> Tuple[Node, int, int]:
+def select(game: Game, node: Node, reverse_q: bool, cpuct: float) -> Tuple[Node, int, int]:
     """
     Descend in the tree until some leaf, exploiting the knowledge to choose
     the best child each time.
@@ -102,7 +102,7 @@ def select(game: Game, node: Node, reverse_q: bool) -> Tuple[Node, int, int]:
         prior_rand = prior * 0.75 + np.random.dirichlet([0.03]*len(prior)) * 0.25
         sqrt_total_num_vis = math.sqrt(sum(c.n_act for c in node.children))
         uct_children = [
-            uct(sqrt_total_num_vis, p, c.q, c.n_act, reverse_q) for p, c in zip(prior_rand, node.children)
+            uct(sqrt_total_num_vis, p, c.q, c.n_act, reverse_q, cpuct=cpuct) for p, c in zip(prior_rand, node.children)
         ]
         #if node.parent is None:
         #    logger.info(" ".join(map(lambda v: f"{v:0.1}", uct_children)))
@@ -145,14 +145,18 @@ def mcts(
     n_rollout: int,
     root: Node,
     reverse_q: bool,
+    cpuct: float = None,
 ) -> List[Tuple[Node, float]]:
+
+    if cpuct is None:
+        cpuct = CPUCT
 
     ends = []
     z = 0
 
     for _ in trange(n_rollout, desc="Roll-out", leave=False):
 
-        leaf, sel_length, reward, z0 = select(game, root, reverse_q)
+        leaf, sel_length, reward, z0 = select(game, root, reverse_q, cpuct=cpuct)
         z += z0
         backward(leaf, reward, sel_length)
         ends.append((leaf, reward))
